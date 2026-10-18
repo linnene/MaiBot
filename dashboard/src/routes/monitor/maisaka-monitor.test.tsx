@@ -578,6 +578,26 @@ describe('阶段状态栏与工具条', () => {
     expect(screen.queryByText('wait')).not.toBeInTheDocument()
   })
 
+  it('主动延后到期时保留计划时长且不显示等待零秒', () => {
+    const stageStatuses = new Map<string, StageStatusInfo>([
+      [
+        's1',
+        makeStatus({
+          stage: '主动延后',
+          agentState: 'wait',
+          waitUntil: nowSec() - 1,
+          interactionKind: 'deliberate_wait',
+          plannedDurationSeconds: 60,
+        }),
+      ],
+    ])
+    setupMonitorState({ selectedSession: 's1', stageStatuses })
+    render(<MaisakaMonitor />)
+
+    expect(screen.getByText('主动延后(计划 60s，即将继续)')).toBeInTheDocument()
+    expect(screen.queryByText(/等待\(0s\)/)).not.toBeInTheDocument()
+  })
+
   it('统计浮层汇总消息、循环与工具调用数量', async () => {
     const user = userEvent.setup()
     const timeline = [
@@ -1240,6 +1260,31 @@ describe('时间线事件卡片', () => {
     expect(screen.getByText('未返回结果摘要。')).toBeInTheDocument()
     expect(screen.getByText('#1')).toBeInTheDocument()
     expect(screen.getByText('#2')).toBeInTheDocument()
+  })
+
+  it('wait 结束后保留计划时长文案，不把零耗时误写成等待零秒', () => {
+    setupMonitorState({
+      timeline: [
+        makeEntry(
+          'planner.finalized',
+          makeFinalized({
+            planner: makePlannerBlock({ content: '稍后再看看' }),
+            tools: [
+              makeToolResult({
+                tool_name: 'wait',
+                tool_args: { seconds: 60 },
+                duration_ms: 0,
+              }),
+            ],
+          })
+        ),
+      ],
+    })
+
+    render(<MaisakaMonitor />)
+
+    expect(screen.getByText('计划等待 60 秒')).toBeInTheDocument()
+    expect(screen.queryByText('等待 0 秒')).not.toBeInTheDocument()
   })
 
   it('planner.progress 在工具返回前显示执行中，已返回的工具显示结果', () => {

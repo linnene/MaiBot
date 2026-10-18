@@ -155,6 +155,139 @@ class BotConfig(ConfigBase):
     """别人可能用来称呼麦麦的名字，用于辅助识别提及。"""
 
 
+class RelationshipIdentityBindingConfig(ConfigBase):
+    """可信关系身份绑定。"""
+
+    platform: str = Field(
+        default="",
+        json_schema_extra={
+            "label": {
+                "zh_CN": "平台",
+                "en_US": "Platform",
+                "ja_JP": "プラットフォーム",
+            },
+            "x-widget": "input",
+        },
+    )
+    """适配器上报的平台名；匹配时忽略大小写。"""
+
+    user_id: str = Field(
+        default="",
+        json_schema_extra={
+            "label": {
+                "zh_CN": "用户 ID",
+                "en_US": "User ID",
+                "ja_JP": "ユーザー ID",
+            },
+            "x-widget": "input",
+        },
+    )
+    """平台提供的稳定用户 ID；必须精确匹配，昵称不会参与认证。"""
+
+    relationship: str = Field(
+        default="",
+        json_schema_extra={
+            "label": {
+                "zh_CN": "关系身份",
+                "en_US": "Relationship",
+                "ja_JP": "関係",
+            },
+            "x-widget": "input",
+        },
+    )
+    """验证通过后提供给 Planner 的关系身份，例如家人、同事或监护人。"""
+
+    display_name: str = Field(
+        default="",
+        json_schema_extra={
+            "label": {
+                "zh_CN": "内部称呼",
+                "en_US": "Internal display name",
+                "ja_JP": "内部表示名",
+            },
+            "x-widget": "input",
+        },
+    )
+    """关系约束中使用的可选称呼，仅用于展示，不参与身份匹配。"""
+
+    exclusive: bool = Field(
+        default=False,
+        json_schema_extra={
+            "label": {
+                "zh_CN": "保护此关系",
+                "en_US": "Protect this relationship",
+                "ja_JP": "この関係を保護",
+            },
+            "x-widget": "switch",
+        },
+    )
+    """启用后，未绑定用户通过昵称、自称或聊天内容声称该关系时不会被采信。"""
+
+    guidance: str = Field(
+        default="",
+        json_schema_extra={
+            "label": {
+                "zh_CN": "相处提示",
+                "en_US": "Interaction guidance",
+                "ja_JP": "接し方の指針",
+            },
+            "x-widget": "textarea",
+        },
+    )
+    """验证通过时使用的简短相处提示；不要在这里保存密钥等敏感凭据。"""
+
+    def model_post_init(self, context: object = None):
+        if not self.platform.strip():
+            raise ValueError("关系身份绑定的 platform 不能为空")
+        if not self.user_id.strip():
+            raise ValueError("关系身份绑定的 user_id 不能为空")
+        if not self.relationship.strip():
+            raise ValueError("关系身份绑定的 relationship 不能为空")
+        return super().model_post_init(context)
+
+
+class RelationshipIdentityConfig(ConfigBase):
+    """可信关系身份配置。"""
+
+    __ui_parent__ = "bot"
+    __ui_label__ = "关系身份"
+
+    enabled: bool = Field(
+        default=False,
+        json_schema_extra={
+            "label": {
+                "zh_CN": "启用可信关系身份",
+                "en_US": "Enable trusted relationships",
+                "ja_JP": "信頼済み関係を有効化",
+            },
+            "x-widget": "switch",
+        },
+    )
+    """根据平台和稳定用户 ID 认证关系身份，而不是相信昵称或聊天中的自称。"""
+
+    bindings: list[RelationshipIdentityBindingConfig] = Field(
+        default_factory=list,
+        json_schema_extra={
+            "label": {
+                "zh_CN": "关系绑定",
+                "en_US": "Relationship bindings",
+                "ja_JP": "関係バインド",
+            },
+            "x-widget": "custom",
+        },
+    )
+    """可信关系绑定列表；真实用户信息只写入部署实例配置，不应硬编码到源码。"""
+
+    def model_post_init(self, context: object = None):
+        identities: set[tuple[str, str]] = set()
+        for binding in self.bindings:
+            identity = (binding.platform.strip().casefold(), binding.user_id.strip())
+            if identity in identities:
+                raise ValueError(f"关系身份绑定重复: platform={binding.platform!r}, user_id={binding.user_id!r}")
+            identities.add(identity)
+        return super().model_post_init(context)
+
+
 class PersonalityConfig(ConfigBase):
     """人格配置类"""
 

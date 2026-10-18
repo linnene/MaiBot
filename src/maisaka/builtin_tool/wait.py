@@ -63,7 +63,7 @@ async def handle_tool(
 
     wait_detail = (
         f"当前对话循环进入等待状态，最多等待 {wait_seconds} 秒；新消息可提前结束等待并继续思考。"
-        if global_config.experimental.planner_message_steering
+        if global_config.experimental.planner_message_steering or not tool_ctx.runtime.chat_stream.is_group_session
         else f"当前对话循环进入等待状态，将固定等待 {wait_seconds} 秒；期间收到的新消息不会提前打断本次等待。"
     )
     return tool_ctx.build_success_result(
@@ -71,6 +71,11 @@ async def handle_tool(
         f"{wait_detail}连续 wait 次数：{current_count}/{max_count}。",
         metadata={
             "pause_execution": True,
+            "requested_wait_seconds": wait_seconds,
+            "interruptible": (
+                global_config.experimental.planner_message_steering
+                or not tool_ctx.runtime.chat_stream.is_group_session
+            ),
             "consecutive_wait_count": current_count,
             "max_consecutive_wait_count": max_count,
         },

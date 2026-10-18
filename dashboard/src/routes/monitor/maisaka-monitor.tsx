@@ -174,10 +174,10 @@ function isWaitTool(toolName?: string) {
   return (toolName ?? '').trim().toLowerCase() === 'wait'
 }
 
-/** wait 为内置工具，只需一句「等待 x 秒」，参数、JSON 与执行结果都不展示 */
+/** wait 为内置工具，只展示计划等待时长，避免与已经流逝或剩余的时间混淆。 */
 function formatWaitToolText(toolArgs?: Record<string, unknown>) {
   const seconds = Number(toolArgs?.seconds ?? 30)
-  return `等待 ${Number.isFinite(seconds) ? Math.max(0, Math.trunc(seconds)) : 30} 秒`
+  return `计划等待 ${Number.isFinite(seconds) ? Math.max(0, Math.trunc(seconds)) : 30} 秒`
 }
 
 function getToolIcon(toolName?: string): LucideIcon {
@@ -1704,7 +1704,11 @@ function WaitToolLabel({ args, waitUntil }: { args?: Record<string, unknown>; wa
         className={cn('h-4 w-4 text-teal-500', remaining !== undefined && remaining > 0 && 'animate-spin')}
         style={{ animationDuration: '3s' }}
       />
-      <span>{remaining === undefined ? formatWaitToolText(args) : `等待 ${remaining} 秒`}</span>
+      <span>
+        {remaining === undefined
+          ? formatWaitToolText(args)
+          : `${formatWaitToolText(args)} · 剩余 ${remaining} 秒`}
+      </span>
     </span>
   )
 }

@@ -48,6 +48,50 @@ from src.plugin_runtime.host.hook_spec_registry import HookSpec, HookSpecRegistr
 logger = get_logger("send_service")
 
 
+async def _wait_for_simulated_typing(message: SessionMessage, typing_time: float) -> None:
+    """执行模拟打字等待，并把计划与实际耗时同步到 MaiSaka 监控。"""
+
+    runtime = None
+    session_id = str(message.session_id or "").strip()
+    if session_id:
+        try:
+            from src.chat.heart_flow.heartflow_manager import heartflow_manager
+
+            runtime = heartflow_manager.heartflow_chat_list.get(session_id)
+        except Exception as exc:
+            logger.debug(f"[SendService] 获取模拟打字运行时失败: session_id={session_id} error={exc}")
+
+    if runtime is not None:
+        runtime.update_interaction_stage(
+            stage="模拟打字",
+            detail=f"预计等待 {typing_time:.1f} 秒后发送",
+            interaction_kind="typing",
+            planned_duration_seconds=typing_time,
+        )
+
+    started_at = time.monotonic()
+    await asyncio.sleep(typing_time)
+    elapsed_seconds = max(0.0, time.monotonic() - started_at)
+
+    if runtime is None:
+        return
+    runtime.update_interaction_stage(
+        stage="发送中",
+        detail=f"模拟打字完成，实际用时 {elapsed_seconds:.1f} 秒",
+        interaction_kind="typing",
+        planned_duration_seconds=typing_time,
+    )
+    try:
+        await runtime.emit_interaction_timing_completed(
+            step="interaction.typing.completed",
+            title="模拟打字完成",
+            planned_seconds=typing_time,
+            elapsed_seconds=elapsed_seconds,
+        )
+    except Exception as exc:
+        logger.debug(f"[SendService] 广播模拟打字耗时失败: session_id={session_id} error={exc}")
+
+
 def register_send_service_hook_specs(registry: HookSpecRegistry) -> List[HookSpec]:
     """注册发送服务内置 Hook 规格。
 
@@ -679,7 +723,7 @@ async def _prepare_message_for_platform_io(
             is_emoji=message.is_emoji,
             is_image=is_image,
         )
-        await asyncio.sleep(typing_time)
+        await _wait_for_simulated_typing(message, typing_time)
 
 
 async def _store_sent_message(message: SessionMessage) -> None:

@@ -47,6 +47,7 @@ from .official_configs import (
     PluginRuntimeConfig,
     ResponsePostProcessConfig,
     ResponseSplitterConfig,
+    RelationshipIdentityConfig,
     TelemetryConfig,
     VisualConfig,
     VoiceConfig,
@@ -100,6 +101,9 @@ class Config(ConfigBase):
 
     personality: PersonalityConfig = Field(default_factory=PersonalityConfig)
     """人格配置类"""
+
+    relationship_identity: RelationshipIdentityConfig = Field(default_factory=RelationshipIdentityConfig)
+    """可信关系身份配置类"""
 
     chat: ChatConfig = Field(default_factory=ChatConfig)
     """聊天配置类"""

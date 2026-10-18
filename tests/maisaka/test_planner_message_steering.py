@@ -448,6 +448,7 @@ def build_wait_runtime(enabled: bool, is_group: bool):
     engine = engine_class()
     engine._runtime = runtime
     engine._ingest_messages = AsyncMock(side_effect=lambda messages: runtime._chat_history.extend(messages))
+    engine._emit_flow_step = AsyncMock()
     return runtime, engine, pending
 
 

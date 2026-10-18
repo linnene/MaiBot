@@ -47,6 +47,8 @@ export interface StageStatusEvent {
   round_text: string
   agent_state: string
   wait_until?: number | null
+  interaction_kind?: 'thinking' | 'typing' | 'deliberate_wait' | string
+  planned_duration_seconds?: number | null
   stage_started_at: number
   updated_at: number
   timestamp: number

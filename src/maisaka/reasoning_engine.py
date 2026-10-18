@@ -94,6 +94,7 @@ from src.maisaka.monitor.events import (
     emit_planner_snapshot,
 )
 from src.maisaka.memory.person_profile import build_person_profile_injection_messages
+from src.maisaka.identity import build_relationship_identity_injection
 from src.maisaka.context.planner_messages import build_planner_user_prefix_from_session_message
 from src.maisaka.visual.mode_utils import resolve_enable_visual_planner
 
@@ -282,6 +283,14 @@ class MaisakaReasoningEngine:
         injected_messages: list[str] = []
         if deferred_tools_reminder:
             injected_messages.append(deferred_tools_reminder)
+
+        relationship_identity_message = build_relationship_identity_injection(
+            anchor_message=profile_message,
+            pending_messages=source_messages,
+            config=global_config.relationship_identity,
+        )
+        if relationship_identity_message:
+            injected_messages.append(relationship_identity_message)
 
         async def build_heuristic_memory_message() -> str:
             try:
@@ -605,7 +614,12 @@ class MaisakaReasoningEngine:
         )
         state.current_stage_started_at = planner_started_at
         state.action_tool_count = len(action_tool_definitions)
-        self._runtime._update_stage_status("Planner", "等待模型响应", round_text=round_text)
+        self._runtime._update_stage_status(
+            "模型思考",
+            "等待 Planner 模型响应",
+            round_text=round_text,
+            interaction_kind="thinking",
+        )
         await self._emit_flow_step(
             "planner.requested",
             f"{round_text} · 请求模型",
@@ -847,7 +861,7 @@ class MaisakaReasoningEngine:
                 f"待处理消息 {len(cached_messages)} 条",
             )
             if self._runtime._has_pending_wait_tool_call():
-                wait_message = self._build_wait_completed_message(has_new_messages=True)
+                wait_message = await self._build_wait_completed_message(has_new_messages=True)
                 continuation_logical_turn_id = wait_message.logical_turn_id
                 self._runtime._chat_history.append(wait_message)
             await self._ingest_messages(cached_messages)
@@ -864,7 +878,7 @@ class MaisakaReasoningEngine:
             await self._runtime.restore_proactive_user_context()
             await self._emit_flow_step("turn.proactive", "主动思考触发", "按已安排的主动触发继续判断当前对话。")
             if self._runtime._has_pending_wait_tool_call():
-                wait_message = self._build_wait_completed_message(has_new_messages=False)
+                wait_message = await self._build_wait_completed_message(has_new_messages=False)
                 continuation_logical_turn_id = wait_message.logical_turn_id
                 self._runtime._chat_history.append(wait_message)
             elif proactive_logical_turn_id:
@@ -875,7 +889,7 @@ class MaisakaReasoningEngine:
                 logger.warning(f"{self._runtime.log_prefix} wait 超时后没有可复用的触发消息，跳过本轮")
                 return TurnStartContext([], None, timeout_triggered, proactive_triggered, silent_reply_frequency)
             logger.info(f"{self._runtime.log_prefix} 等待结束，再看一眼！")
-            wait_message = self._build_wait_completed_message(has_new_messages=False)
+            wait_message = await self._build_wait_completed_message(has_new_messages=False)
             continuation_logical_turn_id = wait_message.logical_turn_id
             self._runtime._chat_history.append(wait_message)
         else:
@@ -1070,7 +1084,18 @@ class MaisakaReasoningEngine:
                         self._runtime._enter_stop_state()
                     if self._runtime._running:
                         if self._runtime._agent_state == self._runtime._STATE_WAIT:
-                            self._runtime._update_stage_status("等待", "等待后继续思考")
+                            planned_seconds = self._runtime._pending_wait_seconds
+                            detail = (
+                                f"计划等待 {planned_seconds:g} 秒后继续思考"
+                                if planned_seconds is not None
+                                else "主动延后回复，等待后继续思考"
+                            )
+                            self._runtime._update_stage_status(
+                                "主动延后",
+                                detail,
+                                interaction_kind="deliberate_wait",
+                                planned_duration_seconds=planned_seconds,
+                            )
                         else:
                             self._runtime._update_stage_status("空闲", "本轮处理结束")
         except asyncio.CancelledError:
@@ -1152,7 +1177,7 @@ class MaisakaReasoningEngine:
 
         return message_triggered, timeout_triggered, proactive_triggered
 
-    def _build_wait_completed_message(self, *, has_new_messages: bool) -> ToolResultMessage:
+    async def _build_wait_completed_message(self, *, has_new_messages: bool) -> ToolResultMessage:
         """构造 wait 完成后的工具结果消息。"""
         tool_call_id, logical_turn_id, elapsed_seconds, requested_seconds = self._runtime._consume_pending_wait_state()
         elapsed_text = f"{elapsed_seconds:.1f} 秒"
@@ -1161,6 +1186,16 @@ class MaisakaReasoningEngine:
             f"等待已结束，实际等待 {elapsed_text}{requested_text}，期间收到了新的用户输入。请结合这些新消息继续下一轮思考。"
             if has_new_messages
             else f"等待已超时，实际等待 {elapsed_text}{requested_text}，期间没有收到新的用户输入。请基于现有上下文继续下一轮思考。"
+        )
+        await self._emit_flow_step(
+            "interaction.wait.completed",
+            "主动延后结束",
+            (
+                f"计划等待 {requested_seconds:.1f} 秒，实际等待 {elapsed_seconds:.1f} 秒；"
+                + ("收到新消息后提前继续思考。" if has_new_messages else "等待到期后继续思考。")
+                if requested_seconds is not None
+                else f"实际等待 {elapsed_seconds:.1f} 秒后继续思考。"
+            ),
         )
         return ToolResultMessage(
             content=content,

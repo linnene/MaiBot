@@ -48,6 +48,7 @@ from src.maisaka.display.runtime_mixin import MaisakaRuntimeDisplayMixin
 from src.maisaka.display.stage_status_board import remove_stage_status, update_stage_status
 from src.maisaka.focus import MaisakaFocusRuntimeMixin, focus_mode_manager
 from src.maisaka.monitor.events import (
+    emit_flow_step,
     emit_message_ingested,
     emit_message_sent,
     emit_message_updated,
@@ -278,7 +279,15 @@ class MaisakaHeartFlowChatting(MaisakaFocusRuntimeMixin, MaisakaRuntimeDisplayMi
 
         return bool(global_config.debug.enable_reply_effect_tracking)
 
-    def _update_stage_status(self, stage: str, detail: str = "", *, round_text: str = "") -> None:
+    def _update_stage_status(
+        self,
+        stage: str,
+        detail: str = "",
+        *,
+        round_text: str = "",
+        interaction_kind: str = "",
+        planned_duration_seconds: float | None = None,
+    ) -> None:
         """更新当前会话的阶段状态。"""
 
         update_stage_status(
@@ -296,6 +305,44 @@ class MaisakaHeartFlowChatting(MaisakaFocusRuntimeMixin, MaisakaRuntimeDisplayMi
                 and self._pending_wait_seconds is not None
                 else None
             ),
+            interaction_kind=interaction_kind,
+            planned_duration_seconds=planned_duration_seconds,
+        )
+
+    def update_interaction_stage(
+        self,
+        *,
+        stage: str,
+        detail: str,
+        interaction_kind: str,
+        planned_duration_seconds: float | None = None,
+    ) -> None:
+        """由发送等外围服务更新结构化交互阶段。"""
+
+        self._update_stage_status(
+            stage,
+            detail,
+            interaction_kind=interaction_kind,
+            planned_duration_seconds=planned_duration_seconds,
+        )
+
+    async def emit_interaction_timing_completed(
+        self,
+        *,
+        step: str,
+        title: str,
+        planned_seconds: float,
+        elapsed_seconds: float,
+    ) -> None:
+        """记录可回放的交互计时完成节点。"""
+
+        await emit_flow_step(
+            session_id=self.session_id,
+            run_id=self._monitor_run_id,
+            cycle_id=self._cycle_counter,
+            step=step,
+            title=title,
+            detail=f"计划 {planned_seconds:.1f} 秒，实际 {elapsed_seconds:.1f} 秒。",
         )
 
     async def start(self) -> None:
