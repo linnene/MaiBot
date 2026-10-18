@@ -1,0 +1,36 @@
+--- a/plugin.py
++++ b/plugin.py
+@@ -2016,6 +2016,14 @@
+         default=10,
+         description="跨插件调用的超时（秒）。宿主默认 30 秒太长，会把生活循环一起卡住",
+         json_schema_extra={"label": "调用超时（秒）", "order": 12, "step": 5},
++    )
++    display_scale: float = Field(
++        default=1.0,
++        description=(
++            "只缩放提供给生活模拟和状态卡的金额，不改变 budget-pacer 的真实预算、"
++            "花费比例或频率控制。10 表示真实 50 元按角色生活费 500 元展示"
++        ),
++        json_schema_extra={"label": "角色金额展示倍率", "order": 13, "step": 1},
+     )
+ 
+ 
+@@ -3951,7 +3959,18 @@
+                 )
+             else:
+                 self._economy = parse_budget_status(payload, fetched_at=now)
++                if self._economy.ok:
++                    from dataclasses import replace
+ 
++                    scale = max(0.0, float(self.config.economy.display_scale or 1.0))
++                    self._economy = replace(
++                        self._economy,
++                        budget=self._economy.budget * scale,
++                        spend=self._economy.spend * scale,
++                        today_spend=self._economy.today_spend * scale,
++                        remaining=self._economy.remaining * scale,
++                    )
++
+         snapshot = self._economy
+         if snapshot is not None and snapshot.ok:
+             recovered = self._economy_fail_streak > 0
