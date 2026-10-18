@@ -47,6 +47,16 @@ def make_gate(gates, history=()):
     return gates.DynamicReplyTurnGate(runtime)
 
 
+def make_frequency_gate(gates, *, is_group_session: bool, average_interval: float, received_at: float):
+    runtime = SimpleNamespace(
+        chat_stream=SimpleNamespace(is_group_session=is_group_session),
+        _last_external_message_received_at=received_at,
+        _last_message_received_at=received_at,
+        _get_recent_average_external_message_interval=lambda: average_interval,
+    )
+    return gates.FrequencyThresholdTurnGate(runtime)
+
+
 def test_recent_presence_excludes_expired_pending_but_keeps_batch_size(gates):
     now = 10_000.0
     pending = [message(str(i), now - 1800) for i in range(120)]
@@ -109,3 +119,36 @@ def test_virtual_round_scores_include_other_recent_pending_messages(gates, monke
     )
     assert gate._gate._proactive_scores[-1][1] == pytest.approx(expected)
     assert gate._build_likelihood_input(external, now, pending_messages=external).recent_message_count == 121
+
+
+def test_private_frequency_gate_caps_idle_compensation_interval(gates, monkeypatch):
+    now = 10_000.0
+    monkeypatch.setattr(gates.time, "time", lambda: now)
+    gate = make_frequency_gate(
+        gates,
+        is_group_session=False,
+        average_interval=768.0,
+        received_at=now,
+    )
+
+    initial = gate.evaluate(pending_count=1, trigger_threshold=2)
+    assert initial.decision == "delay"
+    assert initial.delay_seconds == pytest.approx(30.0)
+
+    monkeypatch.setattr(gates.time, "time", lambda: now + 30.0)
+    assert gate.evaluate(pending_count=1, trigger_threshold=2).should_trigger
+
+
+def test_group_frequency_gate_keeps_observed_average_interval(gates, monkeypatch):
+    now = 10_000.0
+    monkeypatch.setattr(gates.time, "time", lambda: now)
+    gate = make_frequency_gate(
+        gates,
+        is_group_session=True,
+        average_interval=768.0,
+        received_at=now,
+    )
+
+    result = gate.evaluate(pending_count=1, trigger_threshold=2)
+    assert result.decision == "delay"
+    assert result.delay_seconds == pytest.approx(768.0)
