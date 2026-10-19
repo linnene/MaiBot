@@ -268,7 +268,11 @@ async def test_person_fact_writeback_uses_resolved_person_id(monkeypatch):
         assert person.person_id == "person-target"
         assert "我长期用青轴键盘" in user_evidence_text
         del reply_text
-        return ["重名用户长期使用青轴键盘"]
+        return [{
+            "fact": "重名用户长期用青轴键盘",
+            "evidence_message_id": "user-1",
+            "evidence_quote": "我长期用青轴键盘",
+        }]
 
     async def fake_store_person_memory_from_answer(person_name: str, memory_content: str, chat_id: str, **kwargs):
         stored_payloads.append(
@@ -289,6 +293,8 @@ async def test_person_fact_writeback_uses_resolved_person_id(monkeypatch):
     )
     monkeypatch.setattr(memory_flow_module, "is_bot_self", lambda platform, user_id: False)
     monkeypatch.setattr(memory_flow_module, "get_person_id", lambda platform, user_id: "person-target")
+    monkeypatch.setattr(memory_flow_module.person_fact_verifier, "find_messages", lambda **kwargs: [user_message])
+    monkeypatch.setattr(memory_flow_module.person_fact_verifier, "get_person_id", lambda platform, user_id: "person-target")
 
     message = SimpleNamespace(
         processed_plain_text="我记住了，你长期用青轴键盘。",
@@ -303,6 +309,51 @@ async def test_person_fact_writeback_uses_resolved_person_id(monkeypatch):
     assert len(stored_payloads) == 1
     assert stored_payloads[0]["person_id"] == "person-target"
     assert stored_payloads[0]["evidence_message_ids"] == ["user-1"]
+
+
+@pytest.mark.asyncio
+async def test_person_fact_writeback_rejects_temporary_state(monkeypatch):
+    stored_payloads: list[dict[str, object]] = []
+    user_message = SimpleNamespace(
+        message_id="user-1", platform="qq", user_id="10001",
+        processed_plain_text="我今天肚子不疼了。",
+        message_info=SimpleNamespace(user_info=SimpleNamespace(user_id="10001")),
+    )
+
+    class FakePerson:
+        person_id = "person-target"
+        person_name = "测试用户"
+        nickname = "测试用户"
+        is_known = True
+
+    service = memory_flow_module.PersonFactWritebackService.__new__(memory_flow_module.PersonFactWritebackService)
+    service._resolve_target_person = lambda message: FakePerson()
+
+    async def fake_extract_facts(person, reply_text, user_evidence_text):
+        return [{
+            "fact": "测试用户今天肚子不疼了",
+            "evidence_message_id": "user-1",
+            "evidence_quote": "我今天肚子不疼了",
+        }]
+
+    async def fake_store(*args, **kwargs):
+        stored_payloads.append(kwargs)
+
+    service._extract_facts = fake_extract_facts
+    monkeypatch.setattr(memory_flow_module, "store_person_memory_from_answer", fake_store)
+    monkeypatch.setattr(memory_flow_module, "find_messages", lambda **kwargs: [user_message])
+    monkeypatch.setattr(memory_flow_module, "is_bot_self", lambda platform, user_id: False)
+    monkeypatch.setattr(memory_flow_module, "get_person_id", lambda platform, user_id: "person-target")
+    monkeypatch.setattr(memory_flow_module.person_fact_verifier, "find_messages", lambda **kwargs: [user_message])
+    monkeypatch.setattr(memory_flow_module.person_fact_verifier, "get_person_id", lambda platform, user_id: "person-target")
+
+    message = SimpleNamespace(
+        processed_plain_text="好点就好。", session_id="session-1", reply_to="", timestamp=20.0,
+        session=SimpleNamespace(platform="qq", user_id="bot-1", group_id="", session_id="session-1"),
+    )
+    await service._handle_message(message)
+
+    assert stored_payloads == []
 
 
 @pytest.mark.asyncio

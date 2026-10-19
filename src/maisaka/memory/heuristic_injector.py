@@ -373,7 +373,8 @@ class HeuristicMemoryInjector:
             return ""
         lines = [
             HEURISTIC_MEMORY_REFERENCE_MARKER,
-            "Internal long-term memory recalled from the current chat impression. Use it only as reasoning context; do not quote it verbatim to the user.",
+            "Internal long-term memory recalled from past chat records. Use it only as reasoning context; do not quote it verbatim to the user.",
+            "Treat every item below as a past record, not as the current day or current state. Relative words such as today/yesterday refer to the original record time. The current message, system date, and explicit corrections always take priority.",
             "",
         ]
         for index, hit in enumerate(hits, start=1):

@@ -26,6 +26,7 @@ from src.A_memorix.host_service import a_memorix_host_service
 
 from .image_writeback_journal import ImageWritebackJournal
 from .person_fact_reverification import reclassify_historical_person_facts
+from . import person_fact_verifier
 
 logger = get_logger("memory_flow_service")
 
@@ -169,24 +170,31 @@ class PersonFactWritebackService:
         if not person_name:
             return
 
-        evidence_message_ids = [
-            str(getattr(item, "message_id", "") or "").strip()
-            for item in evidence.target_messages
-            if str(getattr(item, "message_id", "") or "").strip()
-        ]
         for item in facts:
-            fact = str(item.get("fact", "") if isinstance(item, dict) else item).strip()
-            if not fact:
+            if not isinstance(item, dict):
                 continue
-            # 语义判断由提取模型完成，来源 ID 由本次实际输入的消息确定。
-            # 记录完整的提取上下文，不把模型生成的消息 ID 写成真实证据。
+            fact = str(item.get("fact", "") or "").strip()
+            evidence_message_id = str(item.get("evidence_message_id", "") or "").strip()
+            evidence_quote = str(item.get("evidence_quote", "") or "").strip()
+            person_id = str(getattr(target_person, "person_id", "") or "").strip()
+            if not person_fact_verifier.verify_direct_person_fact(
+                fact=fact,
+                evidence_message_id=evidence_message_id,
+                evidence_quote=evidence_quote,
+                person_id=person_id,
+                person_name=person_name,
+                session_id=session_id,
+            ):
+                logger.debug(f"人物事实未通过原始发言核验，跳过稳定画像写入: {fact[:80]}")
+                continue
+            # 只有能回溯到同一人物原始发言、且不含临时日期语义的事实才进入稳定画像。
             await store_person_memory_from_answer(
                 person_name,
                 fact,
                 session_id,
-                person_id=str(getattr(target_person, "person_id", "") or "").strip(),
+                person_id=person_id,
                 evidence_source="user_supported",
-                evidence_message_ids=evidence_message_ids,
+                evidence_message_ids=[evidence_message_id],
                 fact_claim={"authority": "direct_user", "stability": "stable", "profile_section": "stable_facts"},
             )
 
