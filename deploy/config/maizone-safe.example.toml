@@ -1,0 +1,77 @@
+[plugin]
+enabled = true
+config_version = 1.0
+text_model = "replyer"
+http_host = "127.0.0.1"
+http_port = 9999
+napcat_token = ""
+cookie_methods = ["adapter", "napcat", "qrcode", "local"]
+
+[send]
+history_number = 5
+enable_image = true
+image_mode = "only_emoji"
+ai_probability = 0.5
+image_number = 1
+prompt = "你是'{bot_personality}'。现在是'{current_time}'，请围绕'{topic}'写一条关于你自己当下生活、心情或见闻的QQ空间说说。{bot_expression}。内容可以是自然虚构的个人日常，但不得引用、转述、暗示或确认任何聊天记录、好友私事、哥哥的私人信息或你们的私聊内容，也不得虚构与他人共同发生的现实经历。简短自然，不浮夸，只输出说说正文。"
+enable_chat_memory = false
+enable_life_context = true
+filter_mode = "whitelist"
+target_chats = []
+time_range = "today"
+last_hours = 6
+min_messages = 5
+max_messages = 50
+per_message_max_chars = 200
+chat_memory_mode = "hybrid"
+summary_model = "replyer"
+summary_prompt = "请用简洁的语言概括以下聊天记录的核心内容，提取今天发生的主要事件和话题，不超过200字：\n{chat_logs}"
+hybrid_recent_count = 10
+fallback_prompt = "今天比较平淡，没有太多特别的对话，你可以根据主题自由发挥。"
+
+[read]
+read_number = 3
+like_probability = 0.3
+comment_probability = 0.1
+allow_skip_comment = true
+prompt = "你是'{bot_personality}'，你正在浏览你好友'{target_name}'的QQ空间，你看到了你的好友'{target_name}'在qq空间上在'{created_time}'发了一条内容是'{content}'的说说，现在是'{current_time}'你对'{target_name}'的印象是'{impression}'，若与你的印象点相关，可以适当评论相关内容，无关则忽略此印象，{bot_expression}，回复的平淡一些，简短一些，说中文，不要刻意突出自身学科背景，不要浮夸，不要夸张修辞，不要输出多余内容(包括前后缀，冒号和引号，括号()，表情包，at或 @等 )。若没必要评论只输出不回复，否则只输出评论正文"
+rt_prompt = "你是'{bot_personality}'，你正在浏览你好友'{target_name}'的QQ空间，你看到了你的好友'{target_name}'在qq空间上在'{created_time}'转发了一条内容为'{rt_con}'的说说，你的好友的评论为'{content}'，你对'{target_name}'的印象是'{impression}'，若与你的印象点相关，可以适当评论相关内容，无关则忽略此印象，现在是'{current_time}'，{bot_expression}，回复的平淡一些，简短一些，说中文，不要刻意突出自身学科背景，不要浮夸，不要夸张修辞，不要输出多余内容(包括前后缀，冒号和引号，括号()，表情包，at或 @等 )。若没必要评论只输出不回复，否则只输出评论正文"
+
+[auto_send]
+enable_auto_send = true
+daily_probability = 0.3
+schedule = ["08:00", "20:00"]
+fluctuation = 60
+random_topic = false
+fixed_topic = ["今天的小日常", "刚刚在做的事", "今天吃到的东西", "出门或散步", "上课和图书馆", "听歌或看东西", "一点小情绪"]
+
+[auto_read]
+enable_auto_read = true
+interval = 180
+silent_duration = "23:00-08:00"
+
+[auto_reply]
+enable_auto_reply = false
+reply_number = 5
+reply_probability = 0.0
+prompt = "你是'{bot_personality}'，你的好友'{nickname}'在'{created_time}'评论了你QQ空间上的一条内容为'{content}'的说说，你的好友对该说说的评论为:'{comment_content}'，现在是'{current_time}'，你想要对此评论进行回复，你对该好友的印象是:'{impression}'，若与你的印象点相关，可以适当回复相关内容，无关则忽略此印象，{bot_expression}，回复的平淡一些，简短一些，说中文，不要刻意突出自身学科背景，不要浮夸，不要夸张修辞，不要输出多余内容(包括前后缀，冒号和引号，括号()，表情包，at或 @等 )。只输出回复内容"
+
+[image]
+base_url = "https://ark.cn-beijing.volces.com/api/v3"
+model = "doubao-seedream-5-0-260128"
+api_key = "your_api_key"
+enable_reference = false
+reference = ""
+prompt = "请根据以下QQ空间说说内容配图，并构建生成配图的风格和prompt。说说主人信息：'{personality}'。说说内容:'{message}'。请注意：仅回复用于生成图片的prompt，不要输出多余内容(包括前后缀，冒号和引号，括号()，表情包，at或 @等 )"
+ref_prompt = "说说主人的人设参考图片将随同提示词一起发送给生图AI，可使用'以参考图片风格'或'根据图中人物'等描述引导生成风格"
+
+[authority]
+send_authority_type = "whitelist"
+send_whitelist = ["__TRUSTED_QQ__"]
+send_blacklist = []
+read_authority_type = "whitelist"
+read_whitelist = ["__TRUSTED_QQ__"]
+read_blacklist = []
+auto_read_authority_type = "whitelist"
+auto_read_whitelist = ["__TRUSTED_QQ__"]
+auto_read_blacklist = []

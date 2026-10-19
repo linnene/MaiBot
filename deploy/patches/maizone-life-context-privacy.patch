@@ -1,0 +1,212 @@
+--- a/plugins/org_orge-8_life-frequency/plugin.py
++++ b/plugins/org_orge-8_life-frequency/plugin.py
+@@ -42,6 +42,7 @@
+ 
+ # --- 唯一允许的宿主依赖入口：maibot_sdk（禁止 import src.*）---
+ from maibot_sdk import (
++    API,
+     CONFIG_RELOAD_SCOPE_SELF,
+     Command,
+     Field,
+@@ -8226,7 +8227,51 @@
+         """
+ 
+         return bool(re.search(r"[/／]\s*生活", str(kwargs.get("text") or "")))
++
++    def _public_life_snapshot(self, now: float) -> dict[str, Any]:
++        """Return a deliberately small, privacy-safe view of her own day.
++
++        This contract never exposes scenes, materials, relations, session ids,
++        chat-derived events, or free-form event text.  The activity history is
++        reconstructed from enum-valued activity fields only.
++        """
+ 
++        state = self._state
++        day_start = datetime.fromtimestamp(now).replace(
++            hour=0, minute=0, second=0, microsecond=0
++        ).timestamp()
++        activities: list[str] = []
++        for item in state.recent_events:
++            if not isinstance(item, Mapping):
++                continue
++            try:
++                event_at = float(item.get("at") or 0.0)
++            except (TypeError, ValueError):
++                continue
++            activity = str(item.get("activity") or "")
++            if event_at < day_start or activity not in ALLOWED_ACTIVITIES:
++                continue
++            label = self._activity_label(activity)
++            if label and (not activities or activities[-1] != label):
++                activities.append(label)
++        current = self._activity_label(state.activity)
++        if current and (not activities or activities[-1] != current):
++            activities.append(current)
++        return {
++            "ok": True,
++            "as_of": datetime.fromtimestamp(now).isoformat(timespec="seconds"),
++            "current_activity": current,
++            "activity_minutes": max(0, int((now - float(state.activity_since or now)) / 60)),
++            "today_activities": activities[-6:],
++            "emotion": round(float(state.emotion), 1),
++            "energy": round(float(state.energy), 1),
++            "health": health_label_prompt(state, now, self._sim_config()),
++            "sleep_hours_today": round(float(sleep_hours_today(state)), 1),
++            "satiety": round(float(state.satiety), 1),
++            "meals_today": int(state.meal_count_today),
++            "privacy": "own_life_only",
++        }
++
+     # ------------------------------------------------------------ 组件
+ 
+     async def _send(self, stream_id: str, text: str) -> None:
+@@ -8293,6 +8338,18 @@
+             )
+         return ok, text
+ 
++    @API(
++        "get_public_life_state",
++        description="只读获取可公开的当天生活状态，不含聊天、关系、会话和自由文本",
++        version="1",
++        public=True,
++    )
++    async def api_get_public_life_state(self, **kwargs: Any) -> dict[str, Any]:
++        """Cross-plugin API for public posts; read-only and fail-closed."""
++
++        del kwargs
++        return self._public_life_snapshot(time.time())
++
+     @Command(
+         "life_state",
+         description="查看/管理麦麦的生活状态与发言频率",
+--- a/plugins/internetsb_maizone/config.py
++++ b/plugins/internetsb_maizone/config.py
+@@ -74,6 +74,11 @@
+         description="是否读取今日聊天记录作为说说素材"
+     )
+ 
++    enable_life_context: bool = Field(
++        default=True,
++        description="是否读取 life-frequency 提供的可公开当天生活状态（不含私聊和关系信息）"
++    )
++
+     filter_mode: Literal["all", "whitelist", "blacklist"] = Field(
+         default="all",
+         description="聊天记录过滤模式（all: 全部会话, whitelist: 白名单（仅以下会话）, blacklist: 黑名单（排除以下会话））",
+@@ -392,4 +397,4 @@
+     authority: AuthorityConfig = Field(
+         default_factory=AuthorityConfig,
+         description="权限配置"
+-    )
+\ No newline at end of file
++    )
+--- a/plugins/internetsb_maizone/utils.py
++++ b/plugins/internetsb_maizone/utils.py
+@@ -65,6 +65,53 @@
+     return bool(getattr(read_cfg, "allow_skip_comment", True))
+ 
+ 
++async def _fetch_public_life_context() -> str:
++    """Fetch only life-frequency's explicit public projection.
++
++    Failure is closed: no chat history or other private source is used as a
++    fallback.  The provider contract contains enum activities and numeric
++    wellbeing fields only.
++    """
++
++    config = plugin_context.config  # type: ignore
++    if not bool(getattr(config.send, "enable_life_context", True)):
++        return ""
++    logger = plugin_context.ctx.logger  # type: ignore
++    try:
++        payload = await asyncio.wait_for(
++            plugin_context.ctx.api.call(
++                "org.orge-8.life-frequency.get_public_life_state",
++                version="1",
++            ),
++            timeout=3.0,
++        )
++    except asyncio.CancelledError:
++        raise
++    except Exception as exc:
++        logger.warning(f"读取公开生活状态失败，跳过该素材: {type(exc).__name__}: {exc}")
++        return ""
++    if not isinstance(payload, dict) or payload.get("success") is False or payload.get("ok") is False:
++        logger.warning("公开生活状态返回无效，跳过该素材")
++        return ""
++
++    activities = payload.get("today_activities")
++    activity_text = "、".join(str(item)[:20] for item in activities[-6:]) if isinstance(activities, list) else ""
++    lines = [
++        f"当前活动：{str(payload.get('current_activity') or '日常')[:20]}",
++        f"已持续约 {max(0, int(payload.get('activity_minutes') or 0))} 分钟",
++    ]
++    if activity_text:
++        lines.append(f"今天的活动轨迹：{activity_text}")
++    lines.extend(
++        [
++            f"心情 {float(payload.get('emotion') or 0):.1f}/10，体力 {float(payload.get('energy') or 0):.1f}/10",
++            f"身体：{str(payload.get('health') or '健康')[:30]}",
++            f"今天睡了 {float(payload.get('sleep_hours_today') or 0):.1f} 小时，吃了 {max(0, int(payload.get('meals_today') or 0))} 顿",
++        ]
++    )
++    return "\n".join(lines)
++
++
+ # ========== 聊天记录处理函数 ==========
+ async def _fetch_chat_messages() -> Tuple[List[Dict[str, Any]], str]:
+     """
+@@ -330,7 +377,17 @@
+         bot_expression=plugin_context.reply_style # type: ignore
+     )
+ 
+-    # ===== 2. 获取聊天记录素材 =====
++    # ===== 2. 获取可公开生活状态 =====
++    life_text = await _fetch_public_life_context()
++    if life_text:
++        prompt += (
++            "\n\n【life-frequency 提供的可公开生活状态】\n"
++            f"{life_text}\n"
++            "只可把这些字段当作她自己的生活素材；不得据此推测、引用或补写任何私聊、关系或他人信息。\n"
++        )
++        logger.info("已插入可公开生活状态（不含聊天与关系数据）")
++
++    # ===== 3. 获取聊天记录素材（关闭时严格为空） =====
+     chat_messages, chat_text = await _fetch_chat_messages()
+ 
+     # 如果有聊天记录素材，插入 prompt（在历史说说之前）
+@@ -338,7 +395,7 @@
+         prompt += f"\n\n【今日聊天记录】\n{chat_text}\n"
+         logger.info(f"已插入聊天记录素材，长度: {len(chat_text)}")
+ 
+-    # ===== 3. 获取历史说说（去重参考） =====
++    # ===== 4. 获取历史说说（去重参考） =====
+     await renew_cookies(config.plugin.http_host, config.plugin.http_port, config.plugin.napcat_token) # type: ignore
+     qzone = create_qzone_api()
+     if not qzone:
+@@ -349,14 +406,14 @@
+     prompt += "\n以下是你近期发布过的说说，请勿在短时间内发布重复内容：\n"
+     prompt += history
+ 
+-    # ===== 4. LLM 生成说说内容 =====
++    # ===== 5. LLM 生成说说内容 =====
+     logger.debug(f"完整 Prompt:\n{prompt}")
+ 
+     llm_response = await plugin_context.ctx.llm.generate(prompt, task_name=config.plugin.text_model) # type: ignore
+     message = llm_response.get("response", "")
+     logger.info(f"已生成说说：{message}")
+ 
+-    # ===== 5. 根据内容生成图片 =====
++    # ===== 6. 根据内容生成图片 =====
+     images_list: list[bytes] = []
+     if config.send.enable_image: # type: ignore
+         images_list = await generate_images(
+@@ -366,7 +423,7 @@
+             config.send.ai_probability
+         )
+ 
+-    # ===== 6. 发布说说 =====
++    # ===== 7. 发布说说 =====
+     result = await qzone.publish_emotion(message, images_list)
+     if result is not None:
+         logger.info(f"发布说说ID：{result}")
