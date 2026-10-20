@@ -10,6 +10,7 @@ import traceback
 from src.chat.replyer.replyer_manager import replyer_manager
 from src.chat.utils.utils import is_bot_self
 from src.cli.maisaka_cli_sender import CLI_PLATFORM_NAME, render_cli_message
+from src.common.data_models.message_component_data_model import EmojiComponent
 from src.common.data_models.reply_generation_data_models import ReplyGenerationResult, build_reply_monitor_detail
 from src.common.logger import get_logger
 from src.config import config as config_module
@@ -18,6 +19,7 @@ from src.maisaka.context.message_adapter import build_visible_text_from_sequence
 from src.maisaka.context.message_id_alias import to_display_message_id
 from src.maisaka.context.messages import LLMContextMessage, SessionBackedMessage
 from src.maisaka.context.planner_messages import extract_quote_ids_from_message_sequence
+from src.maisaka.emoji_behavior import build_emoji_behavior_guidance, emoji_behavior_controller
 from src.plugin_runtime.host.message_utils import PluginMessageUtils
 from src.plugin_runtime.host.reply_extensions import ReplyExtensionExecution, build_reply_extensions_schema
 from src.services import send_service
@@ -25,7 +27,7 @@ from src.services import send_service
 from .context import BuiltinToolRuntimeContext, PostProcessedReplyMessage
 
 logger = get_logger("maisaka_builtin_reply")
-_REPLY_TOOL_INTERNAL_ARGUMENTS = {"msg_id", "set_quote", "_reply_id", "_plugin_reply_prompt"}
+_REPLY_TOOL_INTERNAL_ARGUMENTS = {"msg_id", "set_quote", "emoji_only", "_reply_id", "_plugin_reply_prompt"}
 _DUPLICATE_TARGET_REPLY_REMINDER_ARG = "_duplicate_target_reply_reminder"
 _DUPLICATE_TARGET_REPLY_REMINDER_TEMPLATE = (
     "你刚刚已经回复过这条消息，你刚刚的发言是：“{previous_reply}”\n"
@@ -209,8 +211,17 @@ def get_tool_spec(context: Optional[ToolAvailabilityContext] = None) -> ToolSpec
         properties["attach_emoji"] = {
             "type": "integer",
             "minimum": 1,
-            "description": "可选。从 show_emoji_list 的拼图选择一个表情包，填写图片序号，在文字后发送。",
+            "description": (
+                "可选。从 show_emoji_list 的拼图选择一个表情包，填写图片序号。"
+                f"{build_emoji_behavior_guidance(context)}"
+            ),
         }
+        if config_module.global_config.emoji.behavior.allow_emoji_only:
+            properties["emoji_only"] = {
+                "type": "boolean",
+                "default": False,
+                "description": "选中 attach_emoji 后设为 true，可只发表情并省略文字；仅在一个表情已经足够表达时使用。",
+            }
     if config_module.global_config.chat.enable_reply_at:
         properties["attach_at"] = {
             "type": "array",
@@ -650,6 +661,14 @@ async def handle_tool(
             },
             metadata=reply_metadata,
         )
+
+    sent_emoji_hashes = [
+        component.binary_hash
+        for sequence in reply_sequences
+        for component in sequence.components
+        if isinstance(component, EmojiComponent) and component.binary_hash
+    ]
+    emoji_behavior_controller.record_reply(tool_ctx.runtime.session_id, sent_emoji_hashes)
 
     target_user_info = target_message.message_info.user_info
     bot_name = config_module.global_config.bot.nickname.strip() or "MaiSaka"

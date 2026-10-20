@@ -4386,6 +4386,98 @@ class EmojiCacheCleanupConfig(ConfigBase):
     """未注册表情包文件删掉后，描述缓存记录还能保留多久。"""
 
 
+class EmojiBehaviorConfig(ConfigBase):
+    """表情包在聊天中的行为控制。"""
+
+    __ui_label__ = "发送行为"
+
+    enabled: bool = Field(
+        default=False,
+        json_schema_extra={
+            "label": {
+                "zh_CN": "启用表情行为控制",
+                "en_US": "Enable emoji behavior control",
+                "ja_JP": "絵文字の送信行動制御を有効にする",
+            },
+            "x-widget": "switch",
+        },
+    )
+    """启用后向 Planner 提供场景倾向，并强制执行冷却与近期去重。"""
+
+    private_tendency: float = Field(
+        default=0.25,
+        ge=0.0,
+        le=1.0,
+        json_schema_extra={
+            "label": {
+                "zh_CN": "私聊适合场景发送倾向",
+                "en_US": "Private-chat suitable-scene tendency",
+                "ja_JP": "個人チャットの適切な場面での送信傾向",
+            },
+            "x-widget": "slider",
+        },
+    )
+    """私聊中语境适合时考虑表情包的倾向，不是每轮独立随机概率。"""
+
+    group_tendency: float = Field(
+        default=0.1,
+        ge=0.0,
+        le=1.0,
+        json_schema_extra={
+            "label": {
+                "zh_CN": "群聊适合场景发送倾向",
+                "en_US": "Group-chat suitable-scene tendency",
+                "ja_JP": "グループチャットの適切な場面での送信傾向",
+            },
+            "x-widget": "slider",
+        },
+    )
+    """群聊中语境适合时考虑表情包的倾向，不是每轮独立随机概率。"""
+
+    cooldown_reply_turns: int = Field(
+        default=3,
+        ge=0,
+        le=100,
+        json_schema_extra={
+            "label": {
+                "zh_CN": "发送冷却回复轮数",
+                "en_US": "Emoji cooldown reply turns",
+                "ja_JP": "絵文字送信のクールダウン返信回数",
+            },
+            "x-widget": "input",
+        },
+    )
+    """发出表情后至少经过多少轮不带表情的成功回复，才允许再次发送。"""
+
+    recent_exclusion_count: int = Field(
+        default=8,
+        ge=0,
+        le=64,
+        json_schema_extra={
+            "label": {
+                "zh_CN": "近期表情去重数量",
+                "en_US": "Recent emoji exclusion count",
+                "ja_JP": "最近の絵文字の重複除外数",
+            },
+            "x-widget": "input",
+        },
+    )
+    """每个聊天流中最近多少个已发表情不会再次进入候选。"""
+
+    allow_emoji_only: bool = Field(
+        default=True,
+        json_schema_extra={
+            "label": {
+                "zh_CN": "允许只发表情",
+                "en_US": "Allow emoji-only replies",
+                "ja_JP": "絵文字だけの返信を許可する",
+            },
+            "x-widget": "switch",
+        },
+    )
+    """允许 Planner 在表情已经足够表达时省略文字。"""
+
+
 class EmojiConfig(ConfigBase):
     """表情包配置类"""
 
@@ -4503,6 +4595,9 @@ class EmojiConfig(ConfigBase):
         },
     )
     """开启后只保存内容合适的表情。"""
+
+    behavior: EmojiBehaviorConfig = Field(default_factory=EmojiBehaviorConfig)
+    """表情包发送倾向、冷却与近期去重设置。"""
 
     cache_cleanup: EmojiCacheCleanupConfig = Field(default_factory=EmojiCacheCleanupConfig)
     """定期清理未注册表情包缓存，减少磁盘占用；已注册表情包不会被清理。"""

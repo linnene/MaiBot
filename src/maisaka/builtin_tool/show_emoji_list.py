@@ -8,7 +8,7 @@ from typing import Optional
 
 import asyncio
 
-from src.core.tooling import ToolExecutionContext, ToolExecutionResult, ToolInvocation, ToolSpec
+from src.core.tooling import ToolAvailabilityContext, ToolExecutionContext, ToolExecutionResult, ToolInvocation, ToolSpec
 from src.emoji_system.emoji_manager import emoji_manager
 from src.llm_models.payload_content.context_item import (
     ContextImagePart,
@@ -17,6 +17,7 @@ from src.llm_models.payload_content.context_item import (
     UserMessageItem,
 )
 from src.maisaka.context.emoji_candidates import EmojiCandidateMessage
+from src.maisaka.emoji_behavior import build_emoji_behavior_guidance, emoji_behavior_controller
 from src.maisaka.visual.mode_utils import resolve_enable_visual_planner
 
 from .context import BuiltinToolRuntimeContext
@@ -26,12 +27,13 @@ from .send_emoji import _get_emoji_candidate_count, _load_emoji_bytes, _merge_em
 _emoji_indices = count(1)
 
 
-def get_tool_spec() -> ToolSpec:
+def get_tool_spec(context: Optional[ToolAvailabilityContext] = None) -> ToolSpec:
     return ToolSpec(
         name="show_emoji_list",
         description=(
             "查看随机抽取的表情包选择拼图。图片会进入你的上下文，不会发送给聊天对象。"
             "调用 reply 时将选中图片的序号填入 attach_emoji；历史拼图的序号也可使用。"
+            f"{build_emoji_behavior_guidance(context)}"
         ),
         parameters_schema={"type": "object", "properties": {}},
         provider_name="maisaka_builtin",
@@ -48,9 +50,15 @@ async def handle_tool(
 
     if not resolve_enable_visual_planner():
         return tool_ctx.build_failure_result(invocation.tool_name, "show_emoji_list 需要启用 Planner 视觉能力。")
-    available = list(emoji_manager.emojis)
+    cooldown_remaining = emoji_behavior_controller.cooldown_remaining(tool_ctx.runtime.session_id)
+    if cooldown_remaining > 0:
+        return tool_ctx.build_failure_result(
+            invocation.tool_name,
+            f"表情包仍在冷却中，还需经过 {cooldown_remaining} 轮普通回复。",
+        )
+    available = emoji_behavior_controller.filter_candidates(tool_ctx.runtime.session_id, emoji_manager.emojis)
     if not available:
-        return tool_ctx.build_failure_result(invocation.tool_name, "当前表情包库中没有可用表情。")
+        return tool_ctx.build_failure_result(invocation.tool_name, "当前表情包库中没有未重复的可用表情。")
     candidates = sample(available, min(len(available), _get_emoji_candidate_count()))
     # 在任何 await 之前一次性分配连续编号，并发调用也不会分配到重复编号。
     indices = [next(_emoji_indices) for _ in candidates]

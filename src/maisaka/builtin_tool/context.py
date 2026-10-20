@@ -35,6 +35,7 @@ from src.maisaka.context.planner_messages import (
     build_session_backed_text_message,
     extract_quote_ids_from_message_sequence,
 )
+from src.maisaka.emoji_behavior import emoji_behavior_controller
 from src.plugin_runtime.integration import get_plugin_runtime_manager
 
 if TYPE_CHECKING:
@@ -342,6 +343,8 @@ class BuiltinToolRuntimeContext:
         if selected_emoji is None:
             raise ValueError(f"表情包序号 {raw_index} 对应的表情已不可用，请重新调用 show_emoji_list。")
 
+        emoji_behavior_controller.validate_attachment(self.runtime.session_id, emoji_hash)
+
         emoji_path = resolve_stored_image_path(selected_emoji.full_path)
         emoji_bytes = await asyncio.to_thread(emoji_path.read_bytes)
         await asyncio.to_thread(emoji_manager.update_emoji_usage, selected_emoji)
@@ -410,18 +413,30 @@ class BuiltinToolRuntimeContext:
         ]
         raw_emoji = attachment_args.get("attach_emoji")
         emoji_components = [await self._resolve_emoji_attachment(raw_emoji)] if raw_emoji is not None else []
+        emoji_only = attachment_args.get("emoji_only", False)
+        if not isinstance(emoji_only, bool):
+            raise ValueError("emoji_only 必须是布尔值。")
+        if emoji_only:
+            if not global_config.emoji.behavior.allow_emoji_only:
+                raise ValueError("当前配置不允许只发表情。")
+            if not emoji_components:
+                raise ValueError("emoji_only 需要同时选择 attach_emoji。")
+            if at_components or image_components:
+                raise ValueError("只发表情时不能同时附加 @ 或图片。")
+            items = []
 
         if not at_components and not image_components and not emoji_components:
             return items
 
-        if not items:
+        if not items and not emoji_components:
             raise ValueError("回复附件需要搭配非空的文字回复。")
 
         at_prefix_components = []
         for at_component in at_components:
             at_prefix_components.extend([at_component, TextComponent(" ")])
 
-        items[0].sequence.components = at_prefix_components + items[0].sequence.components
+        if items:
+            items[0].sequence.components = at_prefix_components + items[0].sequence.components
         for image_component in image_components:
             items.append(PostProcessedReplyMessage(sequence=MessageSequence([image_component])))
         if emoji_components:

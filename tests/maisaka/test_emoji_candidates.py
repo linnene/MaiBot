@@ -15,6 +15,7 @@ from src.maisaka.builtin_tool import get_all_builtin_tool_specs
 from src.maisaka.builtin_tool import show_emoji_list as tool
 from src.maisaka.builtin_tool.context import BuiltinToolRuntimeContext
 from src.maisaka.builtin_tool.reply import get_tool_spec
+from src.maisaka.emoji_behavior import emoji_behavior_controller
 from src.maisaka.visual.message_limiter import limit_latest_images_in_messages
 
 
@@ -32,7 +33,13 @@ def candidate_context(monkeypatch, tmp_path):
     monkeypatch.setattr(tool.emoji_manager, "emojis", [emoji])
     monkeypatch.setattr(tool.emoji_manager, "update_emoji_usage", lambda selected: True)
     monkeypatch.setattr(tool, "resolve_enable_visual_planner", lambda: True)
-    return BuiltinToolRuntimeContext(SimpleNamespace(), SimpleNamespace(_chat_history=[]))
+    emoji_behavior_controller.reset()
+    runtime = SimpleNamespace(
+        _chat_history=[],
+        session_id="emoji-test-session",
+        chat_stream=SimpleNamespace(is_group_session=False),
+    )
+    return BuiltinToolRuntimeContext(SimpleNamespace(), runtime)
 
 
 @pytest.mark.asyncio
@@ -55,7 +62,10 @@ async def test_multiple_collages_keep_unique_indices_and_old_selection(candidate
     assert items[1].sequence.components[0].binary_hash == messages[0].emoji_hashes[indices[0]]
     assert not items[1].quote_previous
     # 历史复制后仍携带相同的编号映射；裁剪并重新展示也不能复用已发出的编号。
-    copied = BuiltinToolRuntimeContext(SimpleNamespace(), SimpleNamespace(_chat_history=list(messages)))
+    copied = BuiltinToolRuntimeContext(
+        SimpleNamespace(),
+        SimpleNamespace(_chat_history=list(messages), session_id="copied-session"),
+    )
     assert (await copied._resolve_emoji_attachment(indices[0])).binary_hash == messages[0].emoji_hashes[indices[0]]
     candidate_context.runtime._chat_history.clear()
     result = await tool.handle_tool(candidate_context, ToolInvocation("show_emoji_list"))
@@ -126,3 +136,49 @@ def test_tool_visibility_and_integer_schema(monkeypatch):
     monkeypatch.setattr(global_config.emoji, "use_new_send_logic", False)
     names = {spec.name for spec in get_all_builtin_tool_specs()}
     assert "send_emoji" in names and "show_emoji_list" not in names
+
+
+@pytest.mark.asyncio
+async def test_behavior_cooldown_and_recent_exclusion(candidate_context, monkeypatch):
+    from src.config.config import global_config
+
+    monkeypatch.setattr(global_config.emoji.behavior, "enabled", True)
+    monkeypatch.setattr(global_config.emoji.behavior, "cooldown_reply_turns", 2)
+    monkeypatch.setattr(global_config.emoji.behavior, "recent_exclusion_count", 1)
+    first_result = await tool.handle_tool(candidate_context, ToolInvocation("show_emoji_list"))
+    first_message = first_result.post_history_messages[0]
+    first_index, first_hash = next(iter(first_message.emoji_hashes.items()))
+    candidate_context.runtime._chat_history.append(first_message)
+
+    emoji_behavior_controller.record_reply(candidate_context.runtime.session_id, [first_hash])
+    cooldown_result = await tool.handle_tool(candidate_context, ToolInvocation("show_emoji_list"))
+    assert not cooldown_result.success
+    assert "2 轮" in cooldown_result.error_message
+    with pytest.raises(ValueError, match="冷却"):
+        await candidate_context._resolve_emoji_attachment(first_index)
+
+    emoji_behavior_controller.record_reply(candidate_context.runtime.session_id)
+    emoji_behavior_controller.record_reply(candidate_context.runtime.session_id)
+    with pytest.raises(ValueError, match="刚刚用过"):
+        await candidate_context._resolve_emoji_attachment(first_index)
+
+
+@pytest.mark.asyncio
+async def test_emoji_only_discards_generated_text(candidate_context, monkeypatch):
+    from src.config.config import global_config
+
+    monkeypatch.setattr(global_config.emoji.behavior, "allow_emoji_only", True)
+    result = await tool.handle_tool(candidate_context, ToolInvocation("show_emoji_list"))
+    message = result.post_history_messages[0]
+    candidate_context.runtime._chat_history.append(message)
+    index = next(iter(message.emoji_hashes))
+
+    items = await candidate_context.post_process_reply_message_items_async(
+        "这段生成文本不应发送",
+        {"attach_emoji": index, "emoji_only": True},
+        skip_post_process=True,
+    )
+
+    assert len(items) == 1
+    assert len(items[0].sequence.components) == 1
+    assert isinstance(items[0].sequence.components[0], EmojiComponent)

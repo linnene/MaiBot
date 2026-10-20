@@ -59,7 +59,7 @@ class BuiltinToolEntry:
     """内置工具目录项，集中声明工具所属阶段与默认可见性。"""
 
     name: str
-    get_spec: Callable[[], ToolSpec]
+    get_spec: Callable[..., ToolSpec]
     handle_tool: BuiltinToolRawHandler
     stage: BuiltinToolStage
     visibility: BuiltinToolVisibility = "visible"
@@ -68,7 +68,13 @@ class BuiltinToolEntry:
     def build_spec(self, context: Optional[ToolAvailabilityContext] = None) -> ToolSpec:
         """生成带统一可见性元数据的工具声明。"""
 
-        tool_spec = deepcopy(get_reply_tool_spec(context) if self.name == "reply" else self.get_spec())
+        if self.name == "reply":
+            raw_tool_spec = get_reply_tool_spec(context)
+        elif self.name == "show_emoji_list":
+            raw_tool_spec = get_show_emoji_list_tool_spec(context)
+        else:
+            raw_tool_spec = self.get_spec()
+        tool_spec = deepcopy(raw_tool_spec)
         tool_spec.metadata["builtin_stage"] = self.stage
         tool_spec.metadata["visibility"] = self.visibility
         return tool_spec
