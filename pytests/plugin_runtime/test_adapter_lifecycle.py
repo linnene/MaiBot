@@ -43,6 +43,7 @@ def _build_runtime_manager(supervisor: _FakeSupervisor) -> PluginRuntimeManager:
     manager._adapter_transition_lock = asyncio.Lock()
     manager._blocked_plugin_reasons = {}
     manager._offline_adapter_plugin_ids = set()
+    manager._status_listeners = set()
     manager._builtin_supervisor = supervisor
     manager._third_party_supervisor = None
 
