@@ -1,0 +1,126 @@
+"""LLM 调用包装。
+
+设计要点:
+- 必须通过 ``task_name=`` 传递配置中的任务名,保留该任务的模型选择策略。
+  SDK 的 ``model`` / ``model_name`` 参数仅用于指定具体模型。
+- 区分"调用失败"(异常 / success=False / 超时)与"模型返空响应":
+  前者抛 :class:`LLMCallError`,调用方据此给出"服务暂不可用"文案;
+  后者返回空字符串,调用方给出"无法确定"文案。
+"""
+
+from __future__ import annotations
+
+import asyncio
+import logging
+from typing import TYPE_CHECKING
+
+from ._envelope import peel_envelope
+
+if TYPE_CHECKING:
+    from maibot_sdk import PluginContext
+
+    from ..config import ModelsSection
+
+logger = logging.getLogger(__name__)
+
+
+class LLMCallError(RuntimeError):
+    """LLM 调用层失败(异常/success=False/超时)。
+
+    与"模型自然返回空字符串"区分开,让上层 pipeline 能给出更准确的用户文案。
+    """
+
+
+class LLMRunner:
+    """简单的 LLM 调用包装器。
+
+    持有 ``ctx`` + ``ModelsSection`` 配置,封装"传 prompt → 拿 string"的流程。
+    """
+
+    def __init__(self, ctx: "PluginContext", model_config: "ModelsSection") -> None:
+        self._ctx = ctx
+        self._config = model_config
+
+    async def generate(self, prompt: str) -> str:
+        """生成文本。
+
+        Args:
+            prompt: 完整 prompt 字符串
+
+        Returns:
+            str: LLM 响应文本(成功时);模型返空时返回 ""
+
+        Raises:
+            LLMCallError: LLM 调用层失败(异常 / success=False / 超时)
+        """
+        if not prompt or not prompt.strip():
+            logger.warning("prompt 为空,跳过 LLM 调用")
+            return ""
+
+        task_name = self._config.model_name
+        temperature = self._config.temperature
+        timeout = max(int(self._config.llm_timeout_seconds or 60), 1)
+        logger.info(
+            "调用 ctx.llm.generate, task_name=%s temperature=%s prompt_len=%d timeout=%ds",
+            task_name,
+            temperature,
+            len(prompt),
+            timeout,
+        )
+
+        try:
+            result = await asyncio.wait_for(
+                self._ctx.llm.generate(
+                    prompt=prompt,
+                    task_name=task_name,  # 任务名不能作为具体模型名传入 model
+                    temperature=temperature,
+                    # 必须显式传给 RPC 层:不传时 Runner 默认 30s 超时,
+                    # 外层 wait_for 的配置超时根本轮不到生效(曾致 summarize 30s 必炸)
+                    timeout_ms=timeout * 1000,
+                ),
+                timeout=timeout + 5,  # 外层只做兜底,略宽于 RPC 超时避免抢跑
+            )
+        except asyncio.TimeoutError as exc:
+            logger.error("ctx.llm.generate 超时(%ds, task_name=%s)", timeout, task_name)
+            raise LLMCallError(f"LLM 调用超时 ({timeout}s)") from exc
+        except Exception as exc:
+            logger.error("ctx.llm.generate 抛异常: %s", exc, exc_info=True)
+            raise LLMCallError(f"LLM 调用异常: {exc}") from exc
+
+        # SDK 2.4 / 新版 Runner 会多包一层 {"success": True, "result": {...}}
+        # 信封,SDK 的 _normalize_capability_result 没剥干净,这里手动剥。
+        result = peel_envelope(result)
+
+        if not isinstance(result, dict):
+            logger.warning("ctx.llm.generate 返回非 dict: type=%s value=%r", type(result).__name__, result)
+            raise LLMCallError(f"LLM 返回非 dict: {type(result).__name__}")
+
+        success = bool(result.get("success", False))
+        response_text = str(result.get("response") or "")
+        if not success:
+            err = result.get("error") or "<no error key>"
+            logger.error(
+                "LLM 调用失败 (task_name=%s): error=%s | full_result_keys=%s",
+                task_name,
+                err,
+                sorted(result.keys()),
+            )
+            raise LLMCallError(f"LLM 调用失败 (task_name={task_name}): {err}")
+
+        if not response_text:
+            # 模型自然返回空 —— 不抛异常,让上层判断这是"无内容"还是"无法判断"
+            logger.warning(
+                "LLM 调用 success=True 但 response 为空 (task_name=%s) full_result_keys=%s",
+                task_name,
+                sorted(result.keys()),
+            )
+            return ""
+
+        preview = response_text[:200].replace("\n", "\\n")
+        logger.info(
+            "LLM 响应成功 (task_name=%s) response_len=%d preview=%r",
+            task_name,
+            len(response_text),
+            preview,
+        )
+        return response_text.strip()

@@ -1,0 +1,12 @@
+aiohttp>=3.8.0
+beautifulsoup4>=4.11.0
+curl_cffi>=0.7.0
+lxml>=4.9.0
+readability-lxml>=0.8.1
+trafilatura>=1.6.0
+charset-normalizer>=3.0.0
+lxml-html-clean>=0.1.0
+aiohttp-socks>=0.8.0
+brotli>=1.0.0
+ddgs>=9.0.0
+httpx>=0.25.0
