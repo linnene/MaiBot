@@ -1,0 +1,2 @@
+# Local SVG renderer; pinned for reproducible deployment
+resvg-py==0.4.0
