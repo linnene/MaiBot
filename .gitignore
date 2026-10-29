@@ -1,0 +1,16 @@
+/config.toml
+/voice-index.json
+__pycache__/
+*.pyc
+
+# Private runtime state is managed outside published source.
+/config.toml
+/config.toml.*
+/config_back/
+/.maibot-release.json
+/cookies.json
+/processed_list.json
+/data/
+/temp/
+__pycache__/
+!/config.toml.example
