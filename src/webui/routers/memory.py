@@ -5587,3 +5587,41 @@ async def compat_apply_best_tuning_profile_kebab(
 @compat_router.get("/retrieval_tuning/tasks/{task_id}/report")
 async def compat_get_tuning_report(task_id: str, format: str = Query("md")):
     return await _tuning_report(task_id, format)
+
+
+class InteractionItemEdit(BaseModel):
+    status: Literal["open", "asked", "done", "cancelled", "uncertain", "expired"]
+    due_at: Optional[float] = None
+
+
+@router.get("/interaction")
+def get_interaction_memory():
+    from src.services.interaction_memory import interaction_memory
+    result = interaction_memory.store.overview()
+    result["mode"] = interaction_memory.config.mode
+    result["session_names"] = {}
+    for row in result["conversations"]:
+        session = _chat_manager.get_existing_session_by_session_id(row["session_id"])
+        if session is not None:
+            result["session_names"][row["session_id"]] = str(session.user_cardname or session.user_nickname or "私聊会话")
+    return result
+
+
+@router.patch("/interaction/items/{item_id}")
+def edit_interaction_memory(item_id: str, edit: InteractionItemEdit):
+    import time
+    from src.services.interaction_memory import interaction_memory
+    try:
+        changed = interaction_memory.store.edit(item_id, edit.status, edit.due_at, time.time())
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
+    if not changed:
+        raise HTTPException(404, "事项不存在")
+    return {"success": True}
+
+
+@router.get("/interaction-panel")
+def get_interaction_panel():
+    from fastapi.responses import HTMLResponse
+    from src.webui.interaction_panel import PANEL
+    return HTMLResponse(PANEL)

@@ -770,10 +770,49 @@ class MaisakaChatLoopService:
             self._get_chat_prompt_name(),
             **self.build_prompt_template_context(tools_section, bot_nickname_notice),
         )
+        if global_config.experimental.persona_harness_v2 or global_config.experimental.persona_context_compiler:
+            system_prompt = f"{self._build_persona_harness_block()}\n\n{system_prompt}"
         # 每轮读取实验开关，普通与专注模式共用同一份本地化风格指令。
         if attention_drift := build_attention_drift_prompt_block():
             system_prompt += f"\n\n{attention_drift}"
         return system_prompt
+
+    def _build_persona_harness_block(self) -> str:
+        """构造 Planner 与 Replyer 共享的稳定人格及交接边界。"""
+
+        personality = global_config.personality.personality.strip()
+        if global_config.experimental.persona_context_compiler:
+            return self._localized_text({
+                "zh-CN": f"稳定人格：{personality}\n决定是否行动；reply 只用 reply_act 选择回应动作，不提供回复草稿或新事实。尊重对方结束聊天的意愿；不行动或简短 close 后停下，不追加索取、催促或追问。普通闲聊保持 casual，明确需要展开讨论才选长回复。",
+                "en-US": f"Stable identity: {personality}\nDecide whether to act; reply uses only reply_act for the conversational action, never a draft or new facts. Respect requests to end the conversation: do not act, or close briefly without more requests or questions. Keep casual chat short; select a long reply only for an explicitly substantive discussion.",
+                "ja-JP": f"安定した人物像：{personality}\n行動するかを判断し、reply_act で応答動作だけを選ぶ。台詞や新しい事実は渡さない。会話終了の希望を尊重し、何もしないか短く close して要求や質問を追加しない。雑談は短く、明確に詳しい議論が必要な場合だけ長い返信を選ぶ。",
+            })
+        return self._localized_text(
+            {
+                "en-US": (
+                    f"Stable identity: {personality}\n"
+                    "Use this only to decide whether to act and what general attitude fits. "
+                    "When calling reply, keep reply_reference to one short conversational intent: "
+                    "choose one main purpose without piling on advice or questions. Cite necessary facts through evidence_refs "
+                    "using message IDs or tool-result call IDs; never invent sources. reply_boundary defaults to brief; "
+                    "choose explain or clarify only when needed. Do not draft dialogue."
+                ),
+                "ja-JP": (
+                    f"安定した人物像：{personality}\n"
+                    "これは行動するかどうかと大まかな態度の判断にだけ使ってください。"
+                    "reply を呼ぶとき、reply_reference は短い会話意図一つだけにし、"
+                    "主な目的は一つだけにし、助言や質問を重ねないでください。必要な根拠は evidence_refs に "
+                    "msg_id またはツール結果の call_id を指定し、不明な出典は作らないでください。"
+                    "reply_boundary は通常 brief、説明や確認が必要な場合だけ explain または clarify。台詞は代筆しないでください。"
+                ),
+                "zh-CN": (
+                    f"稳定人格：{personality}\n"
+                    "它只用于判断是否行动和大致态度。调用 reply 时，reply_reference 只写一个简短的会话意图；"
+                    "只选一个主要回应目的，不叠加建议和追问。必要事实用 evidence_refs 引用原消息 msg_id 或工具结果 call_id；"
+                    "不确定就不填，不能编造来源。reply_boundary 默认 brief，仅在确需解释或澄清时选 explain 或 clarify。不要代写台词。"
+                ),
+            }
+        )
 
     def _build_planner_final_user_reminder(self) -> str:
         """构造每轮 Planner 请求末尾的一次性 user 提醒。"""

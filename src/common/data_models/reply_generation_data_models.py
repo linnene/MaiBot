@@ -94,6 +94,7 @@ class ReplyGenerationResult(BaseDataModel):
         default=False,
         metadata={"description": "本次回复生成是否成功。"},
     )
+    review_request: Optional[Dict[str, Any]] = None
     completion: LLMCompletionResult = field(
         default_factory=LLMCompletionResult,
         metadata={"description": "一次 LLM 调用的原始完成结果。"},

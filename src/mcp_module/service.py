@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from contextlib import asynccontextmanager
 from dataclasses import asdict
+from importlib import import_module
 from typing import TYPE_CHECKING, Any, AsyncIterator, Optional, Sequence
 
 import asyncio
@@ -18,11 +19,10 @@ from src.common.logger import get_logger
 from src.core.tooling import ToolExecutionContext, ToolExecutionResult, ToolInvocation, ToolSpec
 
 from .config import build_mcp_client_runtime_config, build_mcp_server_runtime_configs
-from .host_llm_bridge import MCPHostLLMBridge
-from .manager import MCPManager
 
 if TYPE_CHECKING:
     from src.config.official_configs import MCPConfig
+    from .manager import MCPManager
 
 logger = get_logger("mcp_service")
 
@@ -145,14 +145,15 @@ class MCPService:
             self._closed = False
             new_manager: Optional[MCPManager] = None
             if build_mcp_server_runtime_configs(mcp_config):
-                host_callbacks = (
-                    MCPHostLLMBridge(
+                # 可选连接实现只在确有启用服务器时加载；导入放在线程中避免卡住事件循环。
+                manager_module = await asyncio.to_thread(import_module, "src.mcp_module.manager")
+                host_callbacks = None
+                if mcp_config.client.sampling.enable:
+                    bridge_module = await asyncio.to_thread(import_module, "src.mcp_module.host_llm_bridge")
+                    host_callbacks = bridge_module.MCPHostLLMBridge(
                         sampling_task_name=mcp_config.client.sampling.task_name,
                     ).build_callbacks()
-                    if mcp_config.client.sampling.enable
-                    else None
-                )
-                new_manager = await MCPManager.from_app_config(
+                new_manager = await manager_module.MCPManager.from_app_config(
                     mcp_config,
                     host_callbacks=host_callbacks,
                     discover_extended_features=False,

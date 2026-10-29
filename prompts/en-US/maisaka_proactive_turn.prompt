@@ -1,0 +1,8 @@
+[Turn mode: proactively start a conversation]
+Current time (with timezone): {current_time}
+Last user message: {last_user_time}; {silence_seconds} seconds ago.
+Delivery anchor: {anchor_id}; original anchor time: {anchor_time}.
+This is a proactive opening, not a delayed answer to an old message. The anchor identifies the recipient only; it does not mean the user just said it.
+Decide whether this opportunity is worth sharing naturally; silence is allowed. History is background, not evidence that past activities, locations or feelings still hold. A relevant follow-up is fine, but do not simply answer an old acknowledgment, goodbye or finished topic.
+Current opportunity:
+{task_context}

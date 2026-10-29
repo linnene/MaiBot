@@ -30,6 +30,42 @@ def test_replyer_keeps_using_personality(monkeypatch: pytest.MonkeyPatch) -> Non
     assert "这段行为风格只应提供给 Planner。" not in prompt
 
 
+def test_persona_harness_shares_stable_identity_with_planner(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(global_config.experimental, "persona_harness_v2", True)
+    monkeypatch.setattr(global_config.personality, "personality", "安静但会接熟人的玩笑。")
+    monkeypatch.setattr(global_config.personality, "behavior_style", "只在合适时参与。")
+
+    service = MaisakaChatLoopService()
+    with use_locale("zh-CN"):
+        prompt = service._build_chat_system_prompt()
+
+    assert prompt.startswith("稳定人格：安静但会接熟人的玩笑。")
+    assert "reply_reference 只写一个简短的会话意图" in prompt
+    assert "只在合适时参与。" in prompt
+
+
+def test_persona_harness_is_disabled_by_default_path(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(global_config.experimental, "persona_harness_v2", False)
+    monkeypatch.setattr(global_config.personality, "personality", "不应出现在 Planner 中。")
+
+    prompt = MaisakaChatLoopService()._build_chat_system_prompt()
+
+    assert "不应出现在 Planner 中。" not in prompt
+
+
+@pytest.mark.parametrize("locale", ["zh-CN", "en-US", "ja-JP"])
+@pytest.mark.parametrize("template", ["maisaka_chat", "maisaka_chat_focus", "maisaka_chat_optimized"])
+def test_compiler_planner_never_requests_legacy_free_form_plan(monkeypatch, locale, template):
+    monkeypatch.setattr(global_config.experimental, "persona_context_compiler", True)
+    monkeypatch.setattr(global_config.experimental, "persona_harness_v2", False)
+    service = MaisakaChatLoopService()
+    monkeypatch.setattr(service, "_get_chat_prompt_name", lambda: template)
+    with use_locale(locale):
+        prompt = service._build_chat_system_prompt()
+    assert "reply_act" in prompt
+    assert "reply_reference" not in prompt
+
+
 @pytest.mark.parametrize("prompt_name", ["maisaka_chat", "maisaka_chat_focus", "maisaka_replyer"])
 @pytest.mark.parametrize(
     ("locale", "heading"),

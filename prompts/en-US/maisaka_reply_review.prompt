@@ -1,0 +1,1 @@
+Use this internal tool only when the reply intent conflicts with actual speakers, event ownership, timing, or evidence. Ask Planner to recheck; cite real message IDs, or leave the list empty if uncertain. Emit no speech with the call. For ordinary chat, reply briefly and naturally without using this tool. Style preferences do not warrant review. Tool feedback is not user speech.

@@ -1,3 +1,4 @@
+图片证据的 message_id 与 component_path 只能逐字复制自下方图片证据目录中的同一项，不能用“几分钟前/几小时前”等时间标签代替ID。目录为空或无法确认具体证据时，该事实的 image_evidence 必须为空数组；仍可保留由文字支持的事实。
 你是 {bot_name}。{personality_context}
 现在你需要从以下当前聊天窗口中提取可写入长期记忆的增量信息，并提取其中的重要知识。
 {previous_summary_context}

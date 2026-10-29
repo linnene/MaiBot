@@ -142,7 +142,7 @@ class PersonFactWritebackService:
         reply_text = str(getattr(message, "processed_plain_text", "") or "").strip()
         if not reply_text:
             return
-        if self._looks_ephemeral(reply_text):
+        if self._looks_ephemeral(reply_text) and global_config.interaction_memory.mode != "active":
             return
 
         target_person = self._resolve_target_person(message)
@@ -151,6 +151,11 @@ class PersonFactWritebackService:
 
         evidence = self._collect_user_evidence(message, target_person)
         if not evidence.target_messages:
+            return
+        if global_config.interaction_memory.mode == "active" and all(
+            self._looks_ephemeral(self._format_evidence_message_line(item, include_sender=False))
+            for item in evidence.target_messages
+        ):
             return
         user_evidence_text = self._format_user_evidence(evidence)
 
@@ -616,6 +621,13 @@ class ChatSummaryWritebackService:
             user_id=self._extract_session_user_id(message),
             group_id=self._extract_session_group_id(message),
         )
+        from src.services.interaction_memory import interaction_memory
+        if interaction_memory.config.mode != "off":
+            await asyncio.to_thread(
+                interaction_memory.store.audit, session_id,
+                "summary_success" if getattr(result, "success", False) else "summary_failed",
+                str(getattr(result, "detail", "")), time.time(),
+            )
         if not getattr(result, "success", False):
             logger.warning(
                 f"聊天摘要自动写回失败: session_id={session_id} detail={getattr(result, 'detail', '')}",

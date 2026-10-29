@@ -1032,6 +1032,11 @@ class MaisakaHeartFlowChatting(MaisakaFocusRuntimeMixin, MaisakaRuntimeDisplayMi
         self._last_message_received_at = received_at
         self._record_external_message_interval(message, received_at)
         self._update_message_trigger_state(message)
+        from src.services.interaction_memory import interaction_memory
+        try:
+            await interaction_memory.observe(self.chat_stream, message)
+        except Exception as exc:
+            logger.warning("Interaction state observation failed: %s", exc)
         self.message_cache.append(message)
         self._emit_monitor_message_ingested(message)
         self._prune_processed_message_cache()

@@ -47,7 +47,9 @@ async def test_connection_endpoint_returns_tool_preview_and_closes(
         async def close(self) -> None:
             self.closed = True
 
-    monkeypatch.setattr(mcp_router, "MCPConnection", FakeConnection)
+    from src.mcp_module import connection
+
+    monkeypatch.setattr(connection, "MCPConnection", FakeConnection)
 
     response = await mcp_router.test_mcp_connection(
         MCPServerItemConfig(name="local", command="server")

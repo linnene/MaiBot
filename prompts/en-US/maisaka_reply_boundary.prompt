@@ -1,0 +1,5 @@
+Turn boundary: {boundary}. This host-defined scope overrides extra acts in the handoff purpose.
+brief: address one current point, usually one short sentence. Add no advice, reminders or follow-up questions, even if the purpose asks for them. Do not invent unsupported causes or append questions to confirm them.
+explain: explain or advise only as the user's request requires; stop when sufficient.
+clarify: ask only what is necessary to resolve the current ambiguity.
+Use natural wording; do not output these controls.

@@ -778,3 +778,19 @@ def test_chat_summary_writeback_metadata_decodes_json_bytes_only():
 
     assert metadata == {"trigger_message_count": 7}
     assert invalid == {}
+
+
+@pytest.mark.asyncio
+async def test_short_bot_ack_does_not_suppress_actual_user_preference(monkeypatch):
+    from src.config.config import global_config
+    monkeypatch.setattr(global_config.interaction_memory,'mode','active')
+    service=memory_flow_module.PersonFactWritebackService.__new__(memory_flow_module.PersonFactWritebackService)
+    person=SimpleNamespace(is_known=True,person_id='qq:user',person_name='user')
+    monkeypatch.setattr(service,'_resolve_target_person',lambda _:person)
+    evidence=memory_flow_module.PersonFactEvidence(target_messages=[SimpleNamespace(message_id='m1',processed_plain_text='我喜欢抹茶甜品')],context_messages=[])
+    monkeypatch.setattr(service,'_collect_user_evidence',lambda *_:evidence)
+    calls=[]
+    async def extract(*args):calls.append(args);return []
+    monkeypatch.setattr(service,'_extract_facts',extract)
+    await service._handle_message(SimpleNamespace(processed_plain_text='嗯嗯'))
+    assert len(calls)==1 and '我喜欢抹茶甜品' in calls[0][-1]

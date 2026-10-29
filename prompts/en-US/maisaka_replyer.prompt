@@ -5,6 +5,5 @@ Messages marked as your own messages should be distinguished carefully:
 You are chatting in the group now. Please read the previous chat records, grasp the current topic, and then give a natural, colloquial reply.
 Try to keep it short. It is best to reply to only one topic at a time, so the reply does not become verbose or messy. Please pay attention to the chat content.
 {reply_style}
-You may refer to the information in [Reply Reference], but depending on the situation, you do not have to follow it completely.
 {group_chat_attention_block}
 {replyer_output_instruction}

@@ -1,0 +1,43 @@
+{
+  "schema_version": 1,
+  "suite_id": "companion-slim-structural-v1",
+  "kind": "synthetic_structural_regression_not_live_dialogue",
+  "tests": [
+    "pytests/scripts/test_collect_slim_baseline.py",
+    "pytests/maisaka/test_companion_baseline_contracts.py",
+    "pytests/maisaka/test_proactive_turn_context.py",
+    "pytests/maisaka/test_proactive_context_restore.py",
+    "pytests/maisaka/test_retro_replyer_prompt.py",
+    "pytests/maisaka/test_reply_attachments.py",
+    "pytests/maisaka/test_reply_before_post_process.py",
+    "pytests/maisaka/test_reply_image_recognition_wait.py",
+    "pytests/maisaka/test_query_memory.py",
+    "pytests/maisaka/test_query_memory_tool.py",
+    "pytests/maisaka/test_person_profile_prompt_boundary.py",
+    "pytests/maisaka/test_planner_reply_guard.py",
+    "pytests/maisaka/test_wait_turn_lifecycle.py",
+    "pytests/maisaka/test_context_image_transcode.py",
+    "pytests/test_image_embedding_native_protocols.py"
+  ],
+  "known_baseline_failures_to_verify_not_skip": [
+    "test_attachment_prompt_covers_mentions_and_media",
+    "test_wait_pause_resume_completes_original_logical_turn",
+    "test_siliconflow_url_sends_image_object_to_embeddings_endpoint",
+    "test_dashscope_compatible_mode_url_routes_to_native_protocol",
+    "test_dashscope_workspace_domain_routes_to_native_protocol",
+    "test_ark_plan_v3_url_routes_to_native_protocol_with_dimensions",
+    "test_explicit_template_takes_precedence_on_official_url",
+    "test_unknown_domain_without_template_still_requires_template",
+    "test_native_protocol_requires_https_transport",
+    "test_native_protocol_maps_http_status_error",
+    "test_native_protocol_maps_connection_error"
+  ],
+  "requirements_not_claimed_by_unit_tests": [
+    "real QQ receipt and send acknowledgement",
+    "genuine embedding provider request and vector retrieval quality",
+    "real-image recognition quality",
+    "persona naturalness and long-term memory accuracy",
+    "actual proactive scheduling and platform delivery",
+    "QQ Space publishing and comment privacy"
+  ]
+}

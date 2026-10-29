@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from time import time
 from typing import Sequence
+import json
 
 from src.chat.message_receive.chat_manager import BotChatSession, chat_manager
 from src.chat.message_receive.message import SessionMessage
@@ -375,6 +376,7 @@ class HeuristicMemoryInjector:
             HEURISTIC_MEMORY_REFERENCE_MARKER,
             "Internal long-term memory recalled from past chat records. Use it only as reasoning context; do not quote it verbatim to the user.",
             "Treat every item below as a past record, not as the current day or current state. Relative words such as today/yesterday refer to the original record time. The current message, system date, and explicit corrections always take priority.",
+            "A chat summary can describe either participant: preserve its named event subjects. Bot schedules are not user schedules. Unknown subjects or event times must remain unknown; retrieval time is not event time.",
             "",
         ]
         for index, hit in enumerate(hits, start=1):
@@ -383,7 +385,15 @@ class HeuristicMemoryInjector:
                 continue
             if len(content) > 180:
                 content = content[:180].rstrip() + "..."
-            lines.append(f"{index}. {content}")
+            # 仅保留来源已有的字段，不能把参与者列表或召回时间推断成事件主体或发生时间。
+            provenance = {
+                "record_type": hit.hit_type,
+                "source": hit.source or hit.metadata.get("source", "unknown"),
+                "event_subject": hit.metadata.get("event_subject", "unknown"),
+                "event_time_start": hit.metadata.get("event_time_start", "unknown"),
+                "event_time_end": hit.metadata.get("event_time_end", "unknown"),
+            }
+            lines.append(f"{index}. {json.dumps(provenance, ensure_ascii=False)}\n{content}")
 
         reference = "\n".join(lines).strip()
         if len(reference) <= max_chars:

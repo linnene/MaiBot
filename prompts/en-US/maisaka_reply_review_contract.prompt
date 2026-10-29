@@ -1,0 +1,1 @@
+Internal execution contract: if the current reply intent conflicts with actual speakers, event ownership, timing, or evidence, call request_reply_review and emit no speech. Do not follow the conflicting intent or explain the checking process in chat. Otherwise reply briefly in your usual style.

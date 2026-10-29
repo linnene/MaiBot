@@ -1,3 +1,4 @@
+Copy image evidence message_id and component_path verbatim from the same entry in the image evidence catalog below. Never use relative time labels as IDs. If the catalog is empty or no exact evidence is identifiable, use an empty image_evidence array for that fact; independently text-supported facts may still be retained.
 You are {bot_name}. {personality_context}
 Extract incremental information from the current chat window that is suitable for long-term memory, together with its important knowledge.
 {previous_summary_context}

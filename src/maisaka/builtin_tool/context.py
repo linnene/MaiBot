@@ -15,6 +15,7 @@ from src.chat.utils.utils import (
     process_llm_response_segments,
     process_llm_response_segments_async,
 )
+from src.chat.replyer.review import ReplyReviewBudget
 from src.common.data_models.message_component_data_model import (
     AtComponent,
     EmojiComponent,
@@ -63,6 +64,8 @@ class BuiltinToolRuntimeContext:
     ) -> None:
         self.engine = engine
         self.runtime = runtime
+        self.answered_reply_input_id = ""
+        self.reply_review_budget = ReplyReviewBudget()
 
     @staticmethod
     def build_success_result(

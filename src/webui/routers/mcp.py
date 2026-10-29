@@ -9,7 +9,6 @@ from pydantic import BaseModel, Field, ValidationError
 
 from src.config.official_configs import MCPServerItemConfig
 from src.mcp_module.config import MCPClientRuntimeConfig, build_mcp_server_runtime_config
-from src.mcp_module.connection import MCPConnection
 from src.mcp_module.models import build_tool_annotation
 from src.mcp_module.service import get_mcp_service
 from src.webui.dependencies import require_auth
@@ -47,6 +46,10 @@ def get_mcp_status() -> dict[str, Any]:
 async def test_mcp_connection(server: MCPServerItemConfig) -> MCPConnectionTestResponse:
     """使用草稿配置建立一次性连接，发现工具后立即释放资源。"""
 
+    from importlib import import_module
+
+    connection_module = await asyncio.to_thread(import_module, "src.mcp_module.connection")
+
     payload = server.model_dump(mode="python")
     payload["enabled"] = True
     try:
@@ -54,7 +57,7 @@ async def test_mcp_connection(server: MCPServerItemConfig) -> MCPConnectionTestR
     except ValidationError as exc:
         raise HTTPException(status_code=400, detail=f"MCP 服务配置无效: {exc}") from exc
 
-    connection = MCPConnection(
+    connection = connection_module.MCPConnection(
         build_mcp_server_runtime_config(validated_server),
         MCPClientRuntimeConfig(),
         discover_extended_features=False,

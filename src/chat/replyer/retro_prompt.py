@@ -41,6 +41,7 @@ from src.llm_models.payload_content.context_item import (
     UserMessageItem,
 )
 from src.maisaka.attention_drift import build_attention_drift_prompt_block
+from src.maisaka.proactive_context import PROACTIVE_CONTEXT_KEY, build_proactive_turn_prompt
 from src.maisaka.context.history import build_session_message_visible_text
 from src.maisaka.context.message_adapter import (
     build_visible_text_from_sequence,
@@ -121,6 +122,7 @@ class RetroReplyPromptMixin:
         聊天记录渲染进模板的对话块；启用视觉输入时，图片在同一 user 消息中跟随对应发言。
         """
 
+        handoff_history = list(chat_history)
         # Planner 模型输出不是真实发言；guided_reply 是已发送消息，必须保留在聊天记录中。
         chat_history = [
             message
@@ -168,6 +170,19 @@ class RetroReplyPromptMixin:
             expression_habits=expression_habits,
             reply_requirements=reply_requirements,
         )
+        if global_config.experimental.persona_harness_v2 and not global_config.experimental.persona_context_compiler:
+            from .handoff import render_boundary, render_handoff
+
+            template_context["planner_reasoning"] = render_handoff(reply_tool_args or {}, handoff_history)
+            system_prompt += "\n\n" + render_boundary(reply_tool_args or {})
+        proactive_task = (reply_tool_args or {}).get(PROACTIVE_CONTEXT_KEY)
+        if proactive_task is not None:
+            template_context["reply_target_block"] = build_proactive_turn_prompt(
+                proactive_task,
+                chat_history,
+                anchor_id=reply_message.message_id if reply_message is not None else "",
+                anchor_time=reply_message.timestamp if reply_message is not None else None,
+            )
         user_builder = ContextItemBuilder().set_role(RoleType.User)
         if enable_visual_message:
             dialogue_marker = uuid4().hex

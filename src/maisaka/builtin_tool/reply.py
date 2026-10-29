@@ -7,7 +7,10 @@ import asyncio
 import json
 import traceback
 
+from src.chat.replyer.handoff import HANDOFF_TURN_KEY, handoff_properties, validate_handoff
 from src.chat.replyer.replyer_manager import replyer_manager
+from src.chat.replyer.persona_policy import ReplyAct
+from src.chat.replyer.visible_reply import unwrap_self_history
 from src.chat.utils.utils import is_bot_self
 from src.cli.maisaka_cli_sender import CLI_PLATFORM_NAME, render_cli_message
 from src.common.data_models.message_component_data_model import EmojiComponent
@@ -20,6 +23,9 @@ from src.maisaka.context.message_id_alias import to_display_message_id
 from src.maisaka.context.messages import LLMContextMessage, SessionBackedMessage
 from src.maisaka.context.planner_messages import extract_quote_ids_from_message_sequence
 from src.maisaka.emoji_behavior import build_emoji_behavior_guidance, emoji_behavior_controller
+from src.maisaka.proactive_context import PROACTIVE_CONTEXT_KEY
+from src.maisaka.reply_boundary import latest_user_input_id, normal_reply_block_reason
+from src.chat.replyer.review import review_history_content
 from src.plugin_runtime.host.message_utils import PluginMessageUtils
 from src.plugin_runtime.host.reply_extensions import ReplyExtensionExecution, build_reply_extensions_schema
 from src.services import send_service
@@ -27,12 +33,13 @@ from src.services import send_service
 from .context import BuiltinToolRuntimeContext, PostProcessedReplyMessage
 
 logger = get_logger("maisaka_builtin_reply")
-_REPLY_TOOL_INTERNAL_ARGUMENTS = {"msg_id", "set_quote", "emoji_only", "_reply_id", "_plugin_reply_prompt"}
+_REPLY_TOOL_INTERNAL_ARGUMENTS = {"msg_id", "set_quote", "emoji_only", "_reply_id", "_plugin_reply_prompt", HANDOFF_TURN_KEY, "_interaction_context"}
 _DUPLICATE_TARGET_REPLY_REMINDER_ARG = "_duplicate_target_reply_reminder"
 _DUPLICATE_TARGET_REPLY_REMINDER_TEMPLATE = (
     "你刚刚已经回复过这条消息，你刚刚的发言是：“{previous_reply}”\n"
     "你现在想再次回复这条消息，进行补充，注意请不要和之前你的发言重复。"
 )
+_PERSONA_CONTEXT_FOCUS_VALUES = ("scene", "relationship", "continuity", "memory", "interests")
 
 
 def _normalize_reply_arguments(raw_arguments: dict[str, Any]) -> tuple[dict[str, Any], str]:
@@ -133,8 +140,10 @@ def get_tool_spec(context: Optional[ToolAvailabilityContext] = None) -> ToolSpec
             "type": "string",
             "minLength": 1,
             "description": (
-                "提供本次回复的上下文关键信息与回复方向，"
-                "包括当前聊天状态、人物关系、事实信息、回忆信息；不是回复正文。"
+                "只写本次回复的一个简短会话意图，只选一个主要回应目的；不要叠加调侃、建议、追问，"
+                "不要代写台词或事实。必要来源用 evidence_refs；表达边界用 reply_boundary。"
+                if config_module.global_config.experimental.persona_harness_v2
+                else "提供本次回复的上下文关键信息与回复方向，包括当前聊天状态、人物关系、事实信息、回忆信息；不是回复正文。"
             ),
         },
         "reply_style": {
@@ -143,6 +152,21 @@ def get_tool_spec(context: Optional[ToolAvailabilityContext] = None) -> ToolSpec
             "enum": ["简短表达", "正常回复", "长回复"],
         },
     }
+    if config_module.global_config.experimental.persona_harness_v2 or config_module.global_config.experimental.persona_context_compiler:
+        properties["reply_reference"]["maxLength"] = 240
+        properties["context_focus"] = {
+            "type": "array",
+            "description": (
+                "选择这次回复确实需要的动态背景；没有需要时传空数组。"
+                "scene=当前生活场景，relationship=关系状态，continuity=当前与未完话题，"
+                "memory=过去日记与约定，interests=书柜与近期见闻。不要为了完整而全选。"
+            ),
+            "items": {"type": "string", "enum": list(_PERSONA_CONTEXT_FOCUS_VALUES)},
+            "uniqueItems": True,
+            "maxItems": 3,
+        }
+    if config_module.global_config.experimental.persona_harness_v2 and not config_module.global_config.experimental.persona_context_compiler:
+        properties.update(handoff_properties())
     if _use_expression_intent():
         properties["expression_intent"] = {
             "type": "object",
@@ -234,13 +258,24 @@ def get_tool_spec(context: Optional[ToolAvailabilityContext] = None) -> ToolSpec
     if extension_schema is not None:
         properties["plugin_options"] = extension_schema
 
+    required = ["msg_id", "reply_reference"]
+    if config_module.global_config.experimental.persona_context_compiler:
+        properties.pop("reply_reference")
+        properties["reply_act"] = {
+            "type": "string", "enum": [act.value for act in ReplyAct],
+            "description": "只选择回应动作，不提供台词、新事实或附加叮嘱。close=尊重结束或停止聊天；需要更多信息才选 clarify。",
+        }
+        required = ["msg_id", "reply_act"]
+    if config_module.global_config.experimental.persona_harness_v2 or config_module.global_config.experimental.persona_context_compiler:
+        required.append("context_focus")
+
     return ToolSpec(
         name="reply",
         description="根据当前思考生成并发送可见回复；需要向用户展示上下文或工具返回的图片时，使用 attach_pic 随回复附加图片。",
         parameters_schema={
             "type": "object",
             "properties": properties,
-            "required": ["msg_id", "reply_reference"],
+            "required": required,
         },
         provider_name="maisaka_builtin",
         provider_type="builtin",
@@ -361,13 +396,54 @@ async def handle_tool(
             f"{tool_ctx.runtime.log_prefix} 检测到 reply 工具参数被重复包裹，已自动解包: "
             f"调用编号={invocation.call_id}"
         )
-    reply_reference = invocation_arguments.get("reply_reference")
-    if not isinstance(reply_reference, str) or not reply_reference.strip():
+    compiler_enabled = config_module.global_config.experimental.persona_context_compiler
+    if compiler_enabled:
+        try:
+            invocation_arguments["reply_act"] = ReplyAct(invocation_arguments.get("reply_act")).value
+        except (ValueError, TypeError):
+            return tool_ctx.build_failure_result(
+                invocation.tool_name, "reply_act 必须是 reply 工具声明中的回应动作；不要传自由文本草稿。",
+            )
+        # Discard legacy free-form plans left in the invocation. Separate plugin
+        # hooks remain trusted mutation points, not covered by this schema check.
+        invocation_arguments.pop("reply_reference", None)
+    else:
+        reply_reference = invocation_arguments.get("reply_reference")
+        if not isinstance(reply_reference, str) or not reply_reference.strip():
+            return tool_ctx.build_failure_result(
+                invocation.tool_name,
+                "reply 工具必须提供非空字符串 `reply_reference`，请填写本次回复的上下文关键信息与回复方向后重新调用。",
+            )
+        invocation_arguments["reply_reference"] = reply_reference.strip()
+    if (
+        config_module.global_config.experimental.persona_harness_v2
+        and not compiler_enabled
+        and len(invocation_arguments["reply_reference"]) > 240
+    ):
         return tool_ctx.build_failure_result(
             invocation.tool_name,
-            "reply 工具必须提供非空字符串 `reply_reference`，请填写本次回复的上下文关键信息与回复方向后重新调用。",
+            "`reply_reference` 只应包含一个简短会话意图，长度不能超过 240 个字符，请压缩后重新调用。",
         )
-    invocation_arguments["reply_reference"] = reply_reference.strip()
+    if config_module.global_config.experimental.persona_harness_v2 or compiler_enabled:
+        context_focus = invocation_arguments.get("context_focus")
+        if not isinstance(context_focus, list):
+            return tool_ctx.build_failure_result(
+                invocation.tool_name,
+                "人格约束架构 V2 要求 `context_focus` 为数组；没有需要的动态背景时请传空数组。",
+            )
+        normalized_focus = [str(value).strip() for value in context_focus]
+        invalid_focus = [value for value in normalized_focus if value not in _PERSONA_CONTEXT_FOCUS_VALUES]
+        if invalid_focus or len(normalized_focus) != len(set(normalized_focus)) or len(normalized_focus) > 3:
+            return tool_ctx.build_failure_result(
+                invocation.tool_name,
+                "`context_focus` 只能从 scene、relationship、continuity、memory、interests 中选择至多 3 个且不能重复。",
+            )
+        invocation_arguments["context_focus"] = normalized_focus
+    if config_module.global_config.experimental.persona_harness_v2 and not compiler_enabled:
+        try:
+            validate_handoff(invocation_arguments, tool_ctx.runtime._chat_history)
+        except ValueError as exc:
+            return tool_ctx.build_failure_result(invocation.tool_name, str(exc))
     # 工具上下文的 reasoning 是兼容字段，由 Planner 可见正文填充，不包含 Provider 原生 reasoning。
     latest_thought = context.reasoning if context is not None else invocation.reasoning
     target_message_id = str(invocation_arguments.get("msg_id") or "").strip()
@@ -383,8 +459,15 @@ async def handle_tool(
         for key, value in invocation_arguments.items()
         if key not in _REPLY_TOOL_INTERNAL_ARGUMENTS
     }
+    # The active turn comes from the host, never from model arguments.
+    if context is not None and context.metadata.get("logical_turn_id"):
+        reply_tool_args[HANDOFF_TURN_KEY] = str(context.metadata["logical_turn_id"])
     if not _use_expression_intent():
         reply_tool_args.pop("expression_intent", None)
+    from src.services.interaction_memory import interaction_memory
+    interaction_context = await interaction_memory.context(tool_ctx.runtime.chat_stream)
+    if interaction_context:
+        reply_tool_args["_interaction_context"] = interaction_context
     enable_reply_quote = bool(config_module.global_config.chat.reply_style.enable_reply_quote)
     effective_set_quote = set_quote and enable_reply_quote
 
@@ -399,6 +482,28 @@ async def handle_tool(
         return tool_ctx.build_failure_result(
             invocation.tool_name,
             f"未找到要回复的目标消息，msg_id={to_display_message_id(target_message_id)}",
+        )
+
+    proactive_task = context.metadata.get(PROACTIVE_CONTEXT_KEY) if context is not None else None
+    reply_input_id = latest_user_input_id(tool_ctx.runtime._chat_history)
+    review_input_key = str(proactive_task["task_id"]) if proactive_task is not None else reply_input_id
+    if (config_module.global_config.experimental.replyer_review
+            and tool_ctx.reply_review_budget.exhausted(review_input_key)):
+        return ToolExecutionResult(
+            tool_name=invocation.tool_name, success=True,
+            structured_content={"status": "review_budget_exhausted", "sent": False},
+            stop_after_execution=True,
+        )
+    block_reason = normal_reply_block_reason(
+        tool_ctx.runtime._chat_history,
+        target_is_self=is_bot_self(tool_ctx.runtime.chat_stream.platform, target_message.message_info.user_info.user_id),
+        proactive=proactive_task is not None,
+        answered_input_id=tool_ctx.answered_reply_input_id,
+    )
+    if block_reason:
+        return ToolExecutionResult(
+            tool_name=invocation.tool_name, success=True, content=block_reason,
+            structured_content={"sent": False, "blocked": True}, stop_after_execution=True,
         )
 
     extension_execution = ReplyExtensionExecution(
@@ -450,9 +555,14 @@ async def handle_tool(
             metadata={"reply_id": extension_execution.reply_id},
         )
 
+    # 本轮类型只来自宿主执行上下文，不能由模型传参或残留历史任务冒充。
+    reply_tool_args.pop(PROACTIVE_CONTEXT_KEY, None)
+    proactive_task = context.metadata.get(PROACTIVE_CONTEXT_KEY) if context is not None else None
+    if proactive_task is not None:
+        reply_tool_args[PROACTIVE_CONTEXT_KEY] = proactive_task
     replyer_chat_history = list(tool_ctx.runtime._chat_history)
     previous_target_reply = _find_recent_reply_to_target(replyer_chat_history, target_message_id)
-    if previous_target_reply:
+    if previous_target_reply and proactive_task is None:
         reply_tool_args = _with_duplicate_target_reply_reminder(reply_tool_args, previous_target_reply)
     try:
         tool_ctx.runtime._update_stage_status("Replyer", "生成可见回复")
@@ -482,6 +592,16 @@ async def handle_tool(
             invocation.tool_name,
             "生成可见回复时发生异常。",
             metadata={"reply_id": extension_execution.reply_id},
+        )
+
+    if reply_result.review_request is not None:
+        retry_allowed = tool_ctx.reply_review_budget.record(review_input_key)
+        reply_result.monitor_detail = build_reply_monitor_detail(reply_result)
+        return ToolExecutionResult(
+            tool_name=invocation.tool_name, success=True,
+            structured_content=review_history_content(reply_result.review_request, retry_allowed=retry_allowed),
+            metadata=_build_monitor_metadata(reply_result, extension_execution.reply_id),
+            stop_after_execution=not retry_allowed,
         )
 
     reply_text = reply_result.completion.response_text.strip() if success else ""
@@ -514,6 +634,7 @@ async def handle_tool(
             "enable_chinese_typo": True,
         }
 
+    reply_text = unwrap_self_history(reply_text)
     if not reply_text:
         reply_result.completion.response_text = ""
         reply_result.monitor_detail = build_reply_monitor_detail(reply_result)
@@ -640,6 +761,8 @@ async def handle_tool(
                     )
                 )
                 previous_sent_message = sent_message
+                if proactive_task is None:
+                    tool_ctx.answered_reply_input_id = reply_input_id
     except Exception:
         logger.exception(f"{tool_ctx.runtime.log_prefix} 发送文字消息时发生异常，目标消息编号={target_message_id}")
         return tool_ctx.build_failure_result(
@@ -669,6 +792,8 @@ async def handle_tool(
         if isinstance(component, EmojiComponent) and component.binary_hash
     ]
     emoji_behavior_controller.record_reply(tool_ctx.runtime.session_id, sent_emoji_hashes)
+    if proactive_task is None:
+        tool_ctx.answered_reply_input_id = reply_input_id
 
     target_user_info = target_message.message_info.user_info
     bot_name = config_module.global_config.bot.nickname.strip() or "MaiSaka"
@@ -685,6 +810,14 @@ async def handle_tool(
     reply_metadata["sent_message_ids"] = sent_message_ids
     reply_metadata["send_results"] = send_results
     tool_ctx.runtime.record_planner_reply()
+    if interaction_memory.enabled_for(tool_ctx.runtime.chat_stream):
+        active_task = context.metadata.get(PROACTIVE_CONTEXT_KEY) if context is not None else None
+        task_id = str(active_task.get("task_id") or "") if isinstance(active_task, dict) else ""
+        try:
+            await asyncio.to_thread(interaction_memory.store.delivered, tool_ctx.runtime.session_id, task_id, __import__('time').time())
+        except Exception as exc:
+            logger.warning("Interaction delivery receipt failed: %s", exc)
+
     track_reply_effect = getattr(tool_ctx.runtime, "track_reply_effect", None)
     if track_reply_effect is not None:
         await track_reply_effect(
@@ -704,7 +837,7 @@ async def handle_tool(
             reply_metadata=reply_metadata,
             replyer_context_messages=replyer_chat_history,
         )
-    return tool_ctx.build_success_result(
+    result = tool_ctx.build_success_result(
         invocation.tool_name,
         reply_receipt,
         structured_content={
@@ -718,3 +851,6 @@ async def handle_tool(
         },
         metadata=reply_metadata,
     )
+    # 一次回复可拆成多条发送，但发送结束后必须交还话轮，不能继续回复自己。
+    result.stop_after_execution = True
+    return result

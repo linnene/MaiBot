@@ -288,6 +288,14 @@ class RelationshipIdentityConfig(ConfigBase):
         return super().model_post_init(context)
 
 
+class PersonaDialogueExampleConfig(ConfigBase):
+    """用户确认的表达示例；不作为实际发生的聊天或记忆。"""
+
+    situation: str = Field(default="", max_length=120)
+    user: str = Field(default="", max_length=400)
+    assistant: str = Field(default="", max_length=400)
+
+
 class PersonalityConfig(ConfigBase):
     """人格配置类"""
 
@@ -343,6 +351,18 @@ class PersonalityConfig(ConfigBase):
         },
     )
     """麦麦平时说话的风格，例如简短、温和、吐槽或正式。"""
+
+    casual_reply_max_chars: int = Field(
+        default=0, ge=0, le=1000,
+        json_schema_extra={"label": {"zh_CN": "闲聊目标字数上限（0 不限制）", "en_US": "Casual target character budget (0 disables)", "ja_JP": "雑談の目標文字数（0は無制限）"}},
+    )
+    """实验编译器独立于语气使用的短句目标；计入标点、不计空白，不机械截断；长回复不应用。"""
+
+    dialogue_examples: list[PersonaDialogueExampleConfig] = Field(
+        default_factory=list, max_length=8,
+        json_schema_extra={"label": {"zh_CN": "表达示例（非真实经历）", "en_US": "Voice examples (not memories)", "ja_JP": "話し方の例（記憶ではない）"}},
+    )
+    """上下文编译器使用的少量对话示例；保持为空即可不注入，勿填写私密资料。"""
 
     multiple_reply_style: list[str] = Field(
         default_factory=lambda: [
@@ -1048,6 +1068,37 @@ class ExperimentalConfig(ConfigBase):
     __ui_label__ = "实验性功能"
     __ui_advanced__ = True
     __ui_order__ = 140
+
+    replyer_review: bool = Field(
+        default=False,
+        json_schema_extra={"label": {"zh_CN": "回复器结构化再审", "en_US": "Structured Replyer review", "ja_JP": "返答の構造化再確認"}, "x-widget": "switch"},
+    )
+    """允许 Replyer 通过函数调用向 Planner 请求一次重新决策，不发送被拒绝的正文。"""
+
+    persona_context_compiler: bool = Field(
+        default=False,
+        json_schema_extra={"label": {"zh_CN": "人格上下文编译器（实验）", "en_US": "Persona context compiler (experimental)", "ja_JP": "ペルソナ文脈コンパイラ（実験）"}, "x-widget": "switch"},
+    )
+    """替换 Replyer 的现代提示组装，分开角色核心、示例、实际历史及当前任务；默认关闭便于对照和回退。"""
+
+    persona_history_burst_limit: int = Field(
+        default=0, ge=0, le=100,
+        json_schema_extra={"label": {"zh_CN": "连续自身历史保留条数（0 不裁剪，至少 2）", "en_US": "Consecutive self-history budget (0 disables, minimum 2)", "ja_JP": "連続する自身の履歴上限（0は無制限、最小2）"}},
+    )
+    """只影响实验编译器请求投影，保留连续自身文本的首尾，不修改存储或删除用户消息。"""
+
+    persona_harness_v2: bool = Field(
+        default=False,
+        json_schema_extra={
+            "label": {
+                "zh_CN": "人格约束架构 V2",
+                "en_US": "Persona harness V2",
+                "ja_JP": "ペルソナ制御 V2",
+            },
+            "x-widget": "switch",
+        },
+    )
+    """让 Planner 共享稳定人格，并把 Planner 到 Replyer 的交接限制为简短回复意图，避免 Planner 代写回复。"""
 
     planner_message_steering: bool = Field(
         default=False,
@@ -6405,3 +6456,25 @@ class PluginRuntimeConfig(ConfigBase):
         },
     )
     """插件需要网页截图或渲染时使用的浏览器配置。"""
+
+
+class InteractionMemoryConfig(ConfigBase):
+    """对话状态与可回滚的主动互动策略。"""
+
+    __ui_label__ = "记忆与主动互动"
+    mode: Literal["off", "shadow", "active"] = Field("off", description="off 停用新状态；shadow 只记录新决策；active 使用新策略。回到旧调度还需关闭生活插件的宿主委托。")
+    timezone: str = Field("Asia/Shanghai", description="事项时间和每日额度所用时区。")
+    min_interval_minutes: int = Field(90, ge=15, le=1440, description="主动联系最低间隔；未获回应时自动延长。")
+    after_user_minutes: int = Field(45, ge=5, le=1440, description="刚聊完后的主动开场冷却。")
+    max_unanswered: int = Field(2, ge=1, le=5, description="连续主动联系未获回应的上限。")
+    daily_target_min: int = Field(2, ge=0, le=10, description="日常候选选择的每日软预算下界，不是必须发送次数。")
+    daily_target_max: int = Field(4, ge=0, le=10, description="每日软预算上界；不得小于下界。")
+    daily_hard_max: int = Field(7, ge=0, le=20, description="绝不超过的每日发送上限，仍受生活插件用户配额约束。")
+    life_daily_max: int = Field(1, ge=0, le=5, description="单纯汇报自身生活的每日上限。")
+    topic_cooldown_hours: int = Field(48, ge=1, le=168, description="相同话题再次主动联系前的冷却。")
+
+    def model_post_init(self, __context: object) -> None:
+        from zoneinfo import ZoneInfo
+        ZoneInfo(self.timezone)
+        if self.daily_target_max < self.daily_target_min:
+            raise ValueError("daily_target_max must be >= daily_target_min")

@@ -35,6 +35,7 @@ from .official_configs import (
     DebugConfig,
     EmojiConfig,
     ExperimentalConfig,
+    InteractionMemoryConfig,
     ExpressionConfig,
     JargonConfig,
     KeywordReactionConfig,
@@ -70,7 +71,7 @@ MODEL_CONFIG_PATH: Path = (CONFIG_DIR / "model_config.toml").resolve().absolute(
 LEGACY_ENV_PATH: Path = (PROJECT_ROOT / ".env").resolve().absolute()
 A_MEMORIX_LEGACY_CONFIG_PATH: Path = (CONFIG_DIR / "a_memorix.toml").resolve().absolute()
 MMC_VERSION: str = read_project_version(PROJECT_ROOT)
-CONFIG_VERSION: str = "8.15.6"
+CONFIG_VERSION: str = "8.15.11"
 MODEL_CONFIG_VERSION: str = "1.17.17"
 
 logger = get_logger("config")
@@ -104,6 +105,9 @@ class Config(ConfigBase):
 
     relationship_identity: RelationshipIdentityConfig = Field(default_factory=RelationshipIdentityConfig)
     """可信关系身份配置类"""
+
+    interaction_memory: InteractionMemoryConfig = Field(default_factory=InteractionMemoryConfig)
+    """对话工作状态与主动互动策略。"""
 
     chat: ChatConfig = Field(default_factory=ChatConfig)
     """聊天配置类"""

@@ -1,3 +1,4 @@
+画像根拠の message_id と component_path は下記の画像根拠一覧の同じ項目から一字一句コピーする。「何分前・何時間前」などの時刻ラベルをIDにしない。一覧が空、または根拠を特定できない場合、その事実の image_evidence は空配列にする。文章だけで裏付けられる事実は保存してよい。
 あなたは {bot_name} です。{personality_context}
 以下の現在のチャット範囲から、長期記憶に保存できる増分情報と重要な知識を抽出してください。
 {previous_summary_context}

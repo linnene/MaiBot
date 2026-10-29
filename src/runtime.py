@@ -252,6 +252,12 @@ async def graceful_shutdown(main_system: MainSystem | None = None) -> bool:
             await _await_shutdown_step(config_manager.stop_file_watcher(), timeout=5.0, step_name="停止配置监听")
             and success
         )
+        from src.services.telemetry_lifecycle import telemetry_lifecycle_service
+
+        success = (
+            await _await_shutdown_step(telemetry_lifecycle_service.stop(), timeout=5.0, step_name="停止遥测任务")
+            and success
+        )
         if main_system is not None and main_system.app is not None:
             success = (
                 await _await_shutdown_step(main_system.app.stop(), timeout=5.0, step_name="停止消息入口") and success

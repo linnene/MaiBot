@@ -52,6 +52,9 @@ def load_bot_functions(events, *, memory_failure=False, memory_delay=0, install_
         "src.services.memory_flow_service": {
             "memory_automation_service": SimpleNamespace(shutdown=record("memory_producer_stop"))
         },
+        "src.services.telemetry_lifecycle": {
+            "telemetry_lifecycle_service": SimpleNamespace(stop=record("telemetry_stop"))
+        },
         "src.emoji_system.emoji_manager": {
             "emoji_manager": SimpleNamespace(shutdown=lambda: events.append("emoji_stop"))
         },
@@ -71,6 +74,8 @@ def load_bot_functions(events, *, memory_failure=False, memory_delay=0, install_
         "signal": signal,
         "traceback": traceback,
         "Path": Path,
+        # AST 隔离执行的 check_eula 仍需解析测试目录中的协议文件。
+        "resource_path": lambda *parts: Path(*parts),
         "time": time,
         "MainSystem": SimpleNamespace,
         "_RunResultT": TypeVar("T"),

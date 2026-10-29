@@ -312,13 +312,27 @@ class RuntimeCoreCapabilityMixin:
                 return {"success": False, "error": f"未找到已存在的聊天流: {stream_id}"}
 
             runtime = await heartflow_manager.get_or_create_heartflow_chat(stream_id)
+            reason = str(args.get("reason") or "").strip()
+            decision_id = ""
+            if intent == "mai_life_proactive":
+                from src.services.interaction_memory import interaction_memory
+                metadata = args.get("metadata") if isinstance(args.get("metadata"), dict) else {}
+                delegated = bool(metadata.get("interaction_delegate"))
+                await interaction_memory.seed(chat_session, runtime._chat_history)
+                review = await interaction_memory.review(chat_session, reason, delegated)
+                if not review["accepted"]:
+                    return {"success": True, "accepted": False, "reason": review["reason"]}
+                reason = review["reason"]
+                decision_id = review["decision_id"]
             result = await runtime.enqueue_proactive_task(
                 plugin_id=plugin_id,
                 intent=intent,
-                reason=str(args.get("reason") or "").strip(),
+                reason=reason,
                 priority=str(args.get("priority") or "").strip(),
                 metadata=args.get("metadata") if isinstance(args.get("metadata"), dict) else None,
             )
+            if decision_id:
+                await asyncio.to_thread(interaction_memory.store.bind_task, decision_id, result["task_id"])
             return {"success": True, **result}
         except Exception as exc:
             logger.error(f"[cap.maisaka.proactive.trigger] 执行失败: {exc}", exc_info=True)

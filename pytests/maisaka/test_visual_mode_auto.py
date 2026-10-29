@@ -35,8 +35,8 @@ def test_planner_automatically_resolves_task_visual_capability(
 
 def test_replyer_uses_current_model_visual_capability() -> None:
     generator = object.__new__(BaseMaisakaReplyGenerator)
-    vision_model = ModelInfo(name="vision", model_identifier="vision", api_provider="test", visual=True)
-    text_model = ModelInfo(name="text", model_identifier="text", api_provider="test", visual=False)
+    vision_model = ModelInfo(model_type="llm", name="vision", model_identifier="vision", api_provider="test", visual=True)
+    text_model = ModelInfo(model_type="llm", name="text", model_identifier="text", api_provider="test", visual=False)
 
     # 同一生成器切换模型时，图片输入应跟随本次模型能力变化。
     assert generator._resolve_enable_visual_message(vision_model) is True

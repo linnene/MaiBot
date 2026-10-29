@@ -26,7 +26,8 @@ def _build_runtime_stub() -> MaisakaHeartFlowChatting:
     return runtime
 
 
-def test_wait_pause_resume_completes_original_logical_turn() -> None:
+@pytest.mark.asyncio
+async def test_wait_pause_resume_completes_original_logical_turn() -> None:
     runtime = _build_runtime_stub()
     runtime._enter_wait_state(
         seconds=None,
@@ -39,8 +40,11 @@ def test_wait_pause_resume_completes_original_logical_turn() -> None:
     runtime._enter_running_state()
     engine = object.__new__(MaisakaReasoningEngine)
     engine._runtime = runtime
-    completed = engine._build_wait_completed_message(has_new_messages=True)
+    engine._emit_flow_step = AsyncMock()
+    completed = await engine._build_wait_completed_message(has_new_messages=True)
 
+    engine._emit_flow_step.assert_awaited_once()
+    assert engine._emit_flow_step.await_args.args[0] == "interaction.wait.completed"
     assert completed.tool_call_id == "wait-call-1"
     assert completed.logical_turn_id == "turn-wait-1"
     assert completed.timestamp <= datetime.now()

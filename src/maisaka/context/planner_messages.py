@@ -60,7 +60,7 @@ def build_planner_prefix(
 
     message_attrs.extend(
         [
-            f'time="{escape(timestamp.strftime("%H:%M:%S"), quote=True)}"',
+            f'time="{escape(timestamp.strftime("%Y-%m-%d %H:%M:%S"), quote=True)}"',
             f'user="{escape(user_name, quote=True)}"',
         ]
     )

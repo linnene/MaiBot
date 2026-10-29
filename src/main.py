@@ -220,11 +220,10 @@ class MainSystem:
         # 添加统计信息输出任务
         await async_task_manager.add_task(StatisticOutputTask())
 
-        # 添加遥测心跳与统计上传任务
-        from src.common.remote import TelemetryHeartBeatTask, TelemetryStatsUploadTask
+        # 停用遥测时不加载上传实现、不保留轮询任务；本地统计任务仍照常运行。
+        from src.services.telemetry_lifecycle import telemetry_lifecycle_service
 
-        await async_task_manager.add_task(TelemetryHeartBeatTask())
-        await async_task_manager.add_task(TelemetryStatsUploadTask())
+        await telemetry_lifecycle_service.start()
 
         try:
             init_time = int(1000 * (time.time() - init_start_time))
@@ -298,7 +297,9 @@ async def main() -> None:
         from src.plugin_runtime.integration import get_plugin_runtime_manager
         from src.services.expression_vector_service import expression_vector_service
         from src.services.memory_flow_service import memory_automation_service
+        from src.services.telemetry_lifecycle import telemetry_lifecycle_service
 
+        await telemetry_lifecycle_service.stop()
         emoji_manager.shutdown()
         await image_manager.shutdown()
         await expression_vector_service.stop()

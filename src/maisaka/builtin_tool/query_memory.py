@@ -172,8 +172,14 @@ def _build_replyer_memory_reference(structured_content: Dict[str, Any]) -> str:
         title = str(raw_hit.get("title") or "").strip()
         label_parts = [part for part in (title, hit_type) if part]
         label = f"（{' / '.join(label_parts)}）" if label_parts else ""
+        metadata = raw_hit.get("metadata") or {}
+        time_meta = metadata.get("time_meta") or {}
+        source = str(metadata.get("source") or raw_hit.get("source") or "unknown")
+        start = metadata.get("event_time_start", time_meta.get("event_time_start"))
+        end = metadata.get("event_time_end", time_meta.get("event_time_end"))
+        provenance = f"[source={source}; event_time_start={start}; event_time_end={end}] "
         normalized_content = " ".join(content.split())
-        hit_lines.append(f"{index}. {label}{normalized_content}")
+        hit_lines.append(f"{index}. {label}{provenance}{normalized_content}")
 
     if not hit_lines:
         return ""

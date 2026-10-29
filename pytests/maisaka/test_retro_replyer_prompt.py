@@ -35,6 +35,7 @@ from src.common.prompt_i18n import (
     load_prompt,
 )
 from src.config.config import global_config
+from src.config.official_configs import RelationshipIdentityBindingConfig, RelationshipIdentityConfig
 from src.llm_models.payload_content.context_item import ContextImagePart, ContextItemBuilder, ContextTextPart, RoleType
 from src.maisaka.context.messages import ModelOutputContextMessage
 from src.maisaka.context.planner_messages import build_session_backed_text_message
@@ -91,7 +92,9 @@ def build_history_message(text: str) -> Any:
 
 def build_fake_target_message() -> Any:
     user_info = SimpleNamespace(user_id="u-1", user_cardname="小明", user_nickname="小明")
-    return SimpleNamespace(platform="qq", message_info=SimpleNamespace(user_info=user_info))
+    return SimpleNamespace(
+        platform="qq", message_info=SimpleNamespace(user_info=user_info), timestamp=datetime(2026, 1, 1, 12, 30)
+    )
 
 
 def build_original_history(components: List[Any], *, message_id: str = "m-1", cached_text: str = "") -> Any:
@@ -107,15 +110,21 @@ def build_original_history(components: List[Any], *, message_id: str = "m-1", ca
     return message
 
 
-@pytest.mark.parametrize("component,expected", [
-    (TextComponent("踢了麦麦"), "踢了麦麦"),
-    (ImageComponent(binary_hash="image", content="[图片：内存条截图]"), "[图片：内存条截图]"),
-    (ImageComponent(binary_hash="pending-image"), "[图片，识别中.....]"),
-    (ImageComponent(binary_hash="long-image", content="[图片：" + "详细描述" * 80 + "]"), "[图片：" + "详细描述" * 80 + "]"),
-    (EmojiComponent(binary_hash="emoji", content="[表情包: 疑惑]"), "[表情包: 疑惑]"),
-    (VoiceComponent(binary_hash="voice", content="[语音: 我在测试]"), "[语音: 我在测试]"),
-    (AtComponent(target_user_id="u-2", target_user_nickname="小红"), "@小红"),
-])
+@pytest.mark.parametrize(
+    "component,expected",
+    [
+        (TextComponent("踢了麦麦"), "踢了麦麦"),
+        (ImageComponent(binary_hash="image", content="[图片：内存条截图]"), "[图片：内存条截图]"),
+        (ImageComponent(binary_hash="pending-image"), "[图片，识别中.....]"),
+        (
+            ImageComponent(binary_hash="long-image", content="[图片：" + "详细描述" * 80 + "]"),
+            "[图片：" + "详细描述" * 80 + "]",
+        ),
+        (EmojiComponent(binary_hash="emoji", content="[表情包: 疑惑]"), "[表情包: 疑惑]"),
+        (VoiceComponent(binary_hash="voice", content="[语音: 我在测试]"), "[语音: 我在测试]"),
+        (AtComponent(target_user_id="u-2", target_user_nickname="小红"), "@小红"),
+    ],
+)
 def test_retro_renders_components_when_original_text_cache_is_empty(component: Any, expected: str) -> None:
     generator = build_retro_generator(is_group_session=True)
     message = build_original_history([component])
@@ -153,9 +162,7 @@ def test_retro_quote_keeps_saved_content_outside_history() -> None:
 
 
 @pytest.mark.parametrize("target_in_history", [False, True])
-def test_retro_reply_target_uses_same_quote_format(
-    target_in_history: bool, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_retro_reply_target_uses_same_quote_format(target_in_history: bool, monkeypatch: pytest.MonkeyPatch) -> None:
     generator = build_retro_generator(is_group_session=True)
     monkeypatch.setattr(retro_prompt, "is_bot_self", lambda platform, user_id: False)
     target = build_original_history(
@@ -166,7 +173,9 @@ def test_retro_reply_target_uses_same_quote_format(
     )
     reply = build_original_history([quote, TextComponent("@麦麦 报销麦麦")], message_id="reply-1")
     history = [target, reply] if target_in_history else [reply]
-    expected_reference = "[回复了小明的消息: [图片：最新截图]]" if target_in_history else "[回复了小红的消息: 原消息内容]"
+    expected_reference = (
+        "[回复了小明的消息: [图片：最新截图]]" if target_in_history else "[回复了小红的消息: 原消息内容]"
+    )
     assert generator._build_retro_reply_target_block(reply.original_message, history) == (
         f"现在小明{expected_reference} 说：@麦麦 报销麦麦。引起了你的注意"
     )
@@ -188,15 +197,24 @@ def test_retro_visual_request_keeps_original_image(
     monkeypatch.setattr(global_config.visual, "max_image_num", max_images)
     image_bytes = BytesIO()
     Image.new("RGB", (2, 2)).save(image_bytes, format="PNG")
-    image_message = build_original_history([
-        ImageComponent(binary_hash="image", binary_data=image_bytes.getvalue(), content="[图片：测试原图]"),
-    ], message_id="image-1")
+    image_message = build_original_history(
+        [
+            ImageComponent(binary_hash="image", binary_data=image_bytes.getvalue(), content="[图片：测试原图]"),
+        ],
+        message_id="image-1",
+    )
     image_message.source_kind = image_source
-    reply = build_original_history([
-        ReplyComponent(target_message_id="image-1"), TextComponent("这张图什么意思"),
-    ], message_id="reply-1")
+    reply = build_original_history(
+        [
+            ReplyComponent(target_message_id="image-1"),
+            TextComponent("这张图什么意思"),
+        ],
+        message_id="reply-1",
+    )
     items = generator._build_request_messages(
-        chat_history=[image_message, reply], reply_message=None, reply_reason="解释图片",
+        chat_history=[image_message, reply],
+        reply_message=None,
+        reply_reason="解释图片",
         enable_visual_message=visual_enabled,
     )
     assert [item.role for item in items] == [RoleType.System, RoleType.User]
@@ -236,22 +254,35 @@ def test_retro_images_stay_between_history_messages_in_single_user(
     Image.new("RGB", (2, 2)).save(image_bytes, format="PNG")
     history = [
         build_history_message("FIRST_MESSAGE"),
-        build_original_history([
-            ImageComponent(binary_hash="image-1", binary_data=image_bytes.getvalue(), content="FIRST_IMAGE"),
-        ], message_id="image-1"),
+        build_original_history(
+            [
+                ImageComponent(binary_hash="image-1", binary_data=image_bytes.getvalue(), content="FIRST_IMAGE"),
+            ],
+            message_id="image-1",
+        ),
         build_history_message("MIDDLE_MESSAGE"),
-        build_original_history([
-            ImageComponent(binary_hash="image-2", binary_data=image_bytes.getvalue(), content="SECOND_IMAGE"),
-        ], message_id="image-2"),
+        build_original_history(
+            [
+                ImageComponent(binary_hash="image-2", binary_data=image_bytes.getvalue(), content="SECOND_IMAGE"),
+            ],
+            message_id="image-2",
+        ),
         build_history_message("LAST_MESSAGE"),
     ]
     items = generator._build_retro_request_messages(
-        chat_history=history, reply_message=None, reply_reason="FINAL_REPLY_REFERENCE", enable_visual_message=True,
+        chat_history=history,
+        reply_message=None,
+        reply_reason="FINAL_REPLY_REFERENCE",
+        enable_visual_message=True,
     )
     assert [item.role for item in items] == [RoleType.System, RoleType.User]
     parts = items[1].parts
     assert [type(part) for part in parts] == [
-        ContextTextPart, ContextImagePart, ContextTextPart, ContextImagePart, ContextTextPart,
+        ContextTextPart,
+        ContextImagePart,
+        ContextTextPart,
+        ContextImagePart,
+        ContextTextPart,
     ]
     assert parts[0].text.index("FIRST_MESSAGE") < parts[0].text.index("[图片]")
     assert parts[2].text.index("MIDDLE_MESSAGE") < parts[2].text.index("[图片]")
@@ -267,7 +298,10 @@ def test_retro_images_stay_between_history_messages_in_single_user(
 @pytest.mark.parametrize("max_images", [0, 1, 2])
 @pytest.mark.parametrize("has_original", [False, True])
 def test_retro_visual_descriptions_follow_actual_media_quota(
-    component_type: Any, max_images: int, has_original: bool, monkeypatch: pytest.MonkeyPatch,
+    component_type: Any,
+    max_images: int,
+    has_original: bool,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     generator = build_retro_generator(is_group_session=True)
     isolate_retro_blocks(generator, monkeypatch)
@@ -276,18 +310,22 @@ def test_retro_visual_descriptions_follow_actual_media_quota(
     image_bytes = BytesIO()
     Image.new("RGB", (2, 2)).save(image_bytes, format="PNG")
     # 同一发言中重复的图片数据仍分别占配额，描述不能按 hash 一并删除。
-    message = build_original_history([
-        TextComponent("看看这两张"),
-        component_type(binary_hash="old", binary_data=image_bytes.getvalue(), content="OLD_DESCRIPTION"),
-        component_type(binary_hash="new", binary_data=image_bytes.getvalue(), content="NEW_DESCRIPTION"),
-        component_type(binary_hash="missing", content="MISSING_DESCRIPTION"),
-    ])
+    message = build_original_history(
+        [
+            TextComponent("看看这两张"),
+            component_type(binary_hash="old", binary_data=image_bytes.getvalue(), content="OLD_DESCRIPTION"),
+            component_type(binary_hash="new", binary_data=image_bytes.getvalue(), content="NEW_DESCRIPTION"),
+            component_type(binary_hash="missing", content="MISSING_DESCRIPTION"),
+        ]
+    )
     target = message.original_message
     if not has_original:
         message.original_message = None
         message.visible_text = "[小明]看看这两张OLD_DESCRIPTIONNEW_DESCRIPTIONMISSING_DESCRIPTION"
     items = generator._build_retro_request_messages(
-        chat_history=[message], reply_message=target, reply_reason="回答",
+        chat_history=[message],
+        reply_message=target,
+        reply_reason="回答",
         enable_visual_message=True,
     )
     text = read_item_text(items[1])
@@ -302,7 +340,8 @@ def test_retro_visual_descriptions_follow_actual_media_quota(
 
 @pytest.mark.parametrize("max_images", [1, 2, 3, 4, 5])
 def test_retro_resizes_latest_three_images_across_messages(
-    max_images: int, monkeypatch: pytest.MonkeyPatch,
+    max_images: int,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     generator = build_retro_generator(is_group_session=True)
     isolate_retro_blocks(generator, monkeypatch)
@@ -321,7 +360,10 @@ def test_retro_resizes_latest_three_images_across_messages(
     ]
     history.append(build_original_history(components[3:], message_id="message-3"))
     items = generator._build_retro_request_messages(
-        chat_history=history, reply_message=None, reply_reason="回答", enable_visual_message=True,
+        chat_history=history,
+        reply_message=None,
+        reply_reason="回答",
+        enable_visual_message=True,
     )
     images = [part for part in items[1].parts if isinstance(part, ContextImagePart)]
     assert len(images) == max_images
@@ -338,7 +380,8 @@ def test_retro_resizes_latest_three_images_across_messages(
 
 @pytest.mark.parametrize("size,expected_size", [((400, 1200), (213, 640)), ((1, 1200), (1, 640))])
 def test_retro_resize_keeps_transparency_and_portrait_ratio(
-    size: Any, expected_size: Any,
+    size: Any,
+    expected_size: Any,
 ) -> None:
     output = BytesIO()
     Image.new("RGBA", size, (255, 0, 0, 0)).save(output, format="PNG")
@@ -359,6 +402,23 @@ def isolate_retro_blocks(generator: BaseMaisakaReplyGenerator, monkeypatch: pyte
 
     monkeypatch.setattr(generator, "_build_group_chat_attention_block", lambda session_id: "")
     monkeypatch.setattr(generator, "_build_keyword_reaction_prompt", lambda **kwargs: "")
+
+
+def test_retro_proactive_uses_opening_not_old_reply_target(monkeypatch):
+    from src.maisaka.proactive_context import PROACTIVE_CONTEXT_KEY
+
+    generator = build_retro_generator(is_group_session=False)
+    isolate_retro_blocks(generator, monkeypatch)
+    monkeypatch.setattr(generator, "_build_retro_reply_target_block", lambda *_: "必须回答旧消息")
+    old = build_original_history([TextComponent("嗯嗯")])
+    items = generator._build_retro_request_messages(
+        chat_history=[old], reply_message=old.original_message, reply_reason="",
+        reply_tool_args={PROACTIVE_CONTEXT_KEY: {"task_id": "proactive:test:1", "text": "本轮契机：早餐"}},
+    )
+    text = "\n".join(read_item_text(item) for item in items)
+    assert "主动发起聊天" in text
+    assert "本轮契机：早餐" in text
+    assert "必须回答旧消息" not in text
 
 
 @pytest.mark.parametrize(
@@ -585,6 +645,108 @@ def test_reply_reference_takes_priority_over_planner_content(
     assert generator._build_reply_reference_message("", "") == ""
 
 
+@pytest.mark.parametrize("locale", ["zh-CN", "en-US", "ja-JP"])
+def test_persona_harness_forwards_intent_not_planner_analysis(locale: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(global_config.experimental, "persona_harness_v2", True)
+    set_locale(locale)
+
+    message = BaseMaisakaReplyGenerator._build_reply_reference_message("PLANNER_BODY", "回应对方的玩笑")
+
+    assert "回应对方的玩笑" in message
+    assert "PLANNER_BODY" not in message
+    assert BaseMaisakaReplyGenerator._build_reply_reference_message("PLANNER_BODY", "") == ""
+
+
+def test_own_schedule_keeps_author_and_original_time() -> None:
+    generator = build_retro_generator(is_group_session=False)
+    history = build_session_backed_text_message(
+        speaker_name="bot", text="我下午去图书馆", timestamp=datetime(2026, 1, 1, 12),
+        source_kind="guided_reply", message_id="own-1",
+    )
+    item = generator._build_history_messages([history], enable_visual_message=False)[0]
+    text = read_item_text(item)
+    assert '<self_message time="2026-01-01T12:00:00">' in text
+    assert "我下午去图书馆" in text
+    assert item.meta.timestamp == history.timestamp
+
+
+def test_self_anchor_keeps_real_partner_relationship(monkeypatch: pytest.MonkeyPatch) -> None:
+    from src.chat.replyer import maisaka_generator_base
+
+    generator = build_retro_generator(is_group_session=False)
+    monkeypatch.setattr(global_config, "relationship_identity", RelationshipIdentityConfig(
+        enabled=True, bindings=[RelationshipIdentityBindingConfig(
+            platform="qq", user_id="trusted-id", display_name="partner", relationship="哥哥",
+        )],
+    ))
+    monkeypatch.setattr(maisaka_generator_base, "is_bot_self", lambda _platform, uid: uid == "bot-id")
+    monkeypatch.setattr(generator, "_build_target_message_block", lambda _: "self anchor")
+    monkeypatch.setattr(generator, "_build_reply_attachment_prompt", lambda **_: "")
+    target = build_fake_target_message()
+    target.message_id = "self-target"
+    target.message_info.user_info.user_id = "bot-id"
+    history = build_history_message("hi")
+    history.original_message = build_fake_target_message()
+    history.original_message.message_id = "user-target"
+    history.original_message.message_info.user_info.user_id = "trusted-id"
+    text = generator._build_final_user_message([history], target)
+    assert "partner" in text and "哥哥" in text
+    assert "未命中任何可信关系绑定" not in text
+
+
+def test_persona_harness_keeps_replyer_input_to_persona_history_and_target(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    generator = build_retro_generator(is_group_session=True)
+    isolate_retro_blocks(generator, monkeypatch)
+    monkeypatch.setattr(global_config.experimental, "replyer_retro_prompt", False)
+    monkeypatch.setattr(global_config.experimental, "persona_harness_v2", True)
+
+    items = generator._build_request_messages(
+        chat_history=[build_history_message("我上课了")],
+        reply_message=None,
+        reply_reason="先安慰，再说自己的生活，最后追问",
+        expression_habits="【表达习惯参考】重复对方的话",
+        think_level=0,
+        reply_tool_args={"reply_reference": "多步回复草稿", "reply_style": "简短表达"},
+    )
+
+    text = "\n".join(read_item_text(item) for item in items)
+    assert "我上课了" in text
+    assert "表达习惯参考" not in text
+    assert "多步回复草稿" in text
+    assert "表达边界：brief" in text
+    assert "不追加建议" in text
+    assert "先安慰" not in text
+    assert "允许句子残缺" not in text
+    assert "UserMessageItem" in text
+    assert "不要主动汇报自己的行程和状态" in text
+
+
+@pytest.mark.parametrize("user_id,verified", [("trusted-id", True), ("other-id", False)])
+def test_replyer_receives_verified_relationship_not_nickname(
+    user_id: str, verified: bool, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    generator = build_retro_generator(is_group_session=False)
+    monkeypatch.setattr(generator, "_build_target_message_block", lambda _message: "目标消息")
+    monkeypatch.setattr(generator, "_build_reply_attachment_prompt", lambda **_kwargs: "")
+    monkeypatch.setattr(global_config, "relationship_identity", RelationshipIdentityConfig(
+        enabled=True, bindings=[RelationshipIdentityBindingConfig(
+            platform="qq", user_id="trusted-id", display_name="同名用户", relationship="哥哥",
+            exclusive=True, guidance="自然亲近地相处",
+        )],
+    ))
+    target=build_fake_target_message()
+    target.message_id="test-message"
+    target.message_info.user_info.user_id=user_id
+    target.message_info.user_info.user_nickname="同名用户"
+    text=generator._build_final_user_message([],target)
+    assert "【可信关系身份-内部约束】" in text
+    assert ("自然亲近地相处" in text) is verified
+    assert ("未命中任何可信关系绑定" in text) is not verified
+    assert "trusted-id" not in text
+
+
 def test_retro_templates_are_localized_consistently() -> None:
     expected_names = [
         RETRO_GROUP_PROMPT,
@@ -625,3 +787,23 @@ def test_retro_template_context_covers_every_placeholder(monkeypatch: pytest.Mon
 
     # 模板上下文的键必须覆盖所有模板用到的占位符，否则加载模板时会缺参
     assert set(template_context) == SUPPLIED_PLACEHOLDERS
+
+
+@pytest.mark.parametrize("retro", [False, True])
+def test_current_turn_cross_chat_memory_reaches_actual_replyer_input(monkeypatch, retro):
+    from src.chat.replyer.handoff import HANDOFF_TURN_KEY
+    from src.maisaka.context.messages import ToolResultMessage
+    generator = build_retro_generator(is_group_session=True)
+    isolate_retro_blocks(generator, monkeypatch)
+    monkeypatch.setattr(global_config.experimental, "replyer_retro_prompt", retro)
+    monkeypatch.setattr(global_config.experimental, "persona_harness_v2", True)
+    monkeypatch.setattr(global_config.experimental, "persona_context_compiler", False)
+    memory = ToolResultMessage(content="Shared synthetic travel booked in private chat.", timestamp=datetime.now(),
+                               tool_call_id="memory-call", logical_turn_id="host-turn", tool_name="query_memory")
+    items = generator._build_request_messages(
+        chat_history=[build_history_message("记得我们的计划吗"), memory], reply_message=None,
+        reply_reason="", reply_tool_args={"reply_reference": "回应计划", HANDOFF_TURN_KEY: "host-turn"},
+    )
+    text = "\n".join(read_item_text(item) for item in items)
+    assert "Shared synthetic travel booked in private chat." in text
+    assert "memory-call" in text and "retrieved_at" in text

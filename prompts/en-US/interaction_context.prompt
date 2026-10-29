@@ -1,0 +1,2 @@
+[Conversation items] Past user statements represented as working state, not new input or a checklist to mention: {items}
+Respect source and event time. asked means already asked once; do not keep asking. uncertain means timing is unconfirmed, not today or immediately due. Use only when relevant, preserve disclosure rules and concise expression.

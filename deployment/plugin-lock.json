@@ -1,0 +1,113 @@
+{
+  "schema_version": 1,
+  "description": "Pinned source revisions; runtime configuration and state are intentionally external.",
+  "plugins": [
+    {
+      "id": "maibot-community.mai-life",
+      "folder": "Mai_life",
+      "version": "1.24.0",
+      "source": {
+        "repository": "https://github.com/linnene/MaiBot.git",
+        "ref": "deploy/plugins/mai-life",
+        "commit": "f63d046f5132c4974b8164f9a2444f55871ba10d"
+      },
+      "upstream": "https://github.com/octmicy/Mai_life",
+      "private_runtime_assets": [
+        "config.toml",
+        "SDK data directory"
+      ]
+    },
+    {
+      "id": "maibot-team.snowluma-adapter",
+      "folder": "maibot-team_snowluma-adapter",
+      "version": "1.1.7",
+      "source": {
+        "repository": "https://github.com/Mai-with-u/MaiBot-SnowLuma-Adapter",
+        "commit": "a93a0ad1e27e75e699a4e10571a2cda2884a81cd"
+      },
+      "upstream": "https://github.com/Mai-with-u/MaiBot-SnowLuma-Adapter",
+      "private_runtime_assets": [
+        "config.toml",
+        "SDK data directory"
+      ]
+    },
+    {
+      "id": "spica.easysvg-creator",
+      "folder": "spica_easysvg-creator",
+      "version": "1.1.0",
+      "source": {
+        "repository": "https://github.com/linnene/MaiBot.git",
+        "ref": "deploy/plugins/easysvg",
+        "commit": "d5d506d03d6cba84d5a0e55d5b675ea64e71ace7"
+      },
+      "upstream": "https://github.com/sp1ca0722/maibot-easysvg-creator",
+      "private_runtime_assets": [
+        "config.toml",
+        "SDK data directory"
+      ]
+    },
+    {
+      "id": "local.curated-voice",
+      "folder": "local_curated-voice",
+      "version": "0.1.0",
+      "source": {
+        "repository": "https://github.com/linnene/MaiBot.git",
+        "ref": "deploy/plugins/curated-voice",
+        "commit": "bf1c6be4cf8f09334373b8a786eaf98a42d30e9d"
+      },
+      "upstream": "https://github.com/linnene/MaiBot",
+      "private_runtime_assets": [
+        "config.toml",
+        "SDK data directory",
+        "SDK data directory/voice-index.json"
+      ]
+    },
+    {
+      "id": "internetsb.maizone",
+      "folder": "internetsb_maizone",
+      "version": "3.0.3",
+      "source": {
+        "repository": "https://github.com/linnene/MaiBot.git",
+        "ref": "deploy/plugins/maizone",
+        "commit": "29431f42d3a95b8fa67898ee36a6023cfea8e5a3"
+      },
+      "upstream": "https://github.com/internetsb/Maizone",
+      "private_runtime_assets": [
+        "config.toml",
+        "SDK data directory",
+        "cookies.json",
+        "processed_list.json",
+        "configured reference images"
+      ]
+    },
+    {
+      "id": "org.orge-8.budget-pacer",
+      "folder": "org_orge-8_budget-pacer",
+      "version": "1.1.0",
+      "source": {
+        "repository": "https://github.com/orge-8/budget-pacer",
+        "commit": "ecd4a9caaeb59af4e3f42f86cd20caf86d5bc8ff"
+      },
+      "upstream": "https://github.com/orge-8/budget-pacer",
+      "private_runtime_assets": [
+        "config.toml",
+        "SDK data directory"
+      ]
+    },
+    {
+      "id": "xxxxx7258.google-search-plugin",
+      "folder": "xxxxx7258_google-search-plugin",
+      "version": "4.1.0",
+      "source": {
+        "repository": "https://github.com/linnene/MaiBot.git",
+        "ref": "deploy/plugins/google-search",
+        "commit": "76e697d609671afbd67609e1aa49145950522706"
+      },
+      "upstream": "https://github.com/XXXxx7258/google_search_plugin",
+      "private_runtime_assets": [
+        "config.toml",
+        "SDK data directory"
+      ]
+    }
+  ]
+}

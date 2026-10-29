@@ -49,6 +49,7 @@ def test_shutdown_once_and_memory_before_remaining_cancellation(bot, fail):
         assert ns["_run_graceful_shutdown"](loop, system) is (not fail)
         assert events.count("memory_stop") == 1
         assert events.count("image_sync") == 1
+        assert events.count("telemetry_stop") == 1
         assert (
             events.index("image_sync")
             < events.index("memory_producer_stop")

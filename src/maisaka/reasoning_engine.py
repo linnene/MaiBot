@@ -95,6 +95,7 @@ from src.maisaka.monitor.events import (
 )
 from src.maisaka.memory.person_profile import build_person_profile_injection_messages
 from src.maisaka.identity import build_relationship_identity_injection
+from src.maisaka.proactive_context import PROACTIVE_CONTEXT_KEY, build_proactive_turn_prompt, resolve_proactive_task
 from src.maisaka.context.planner_messages import build_planner_user_prefix_from_session_message
 from src.maisaka.visual.mode_utils import resolve_enable_visual_planner
 
@@ -167,6 +168,7 @@ class MaisakaReasoningEngine:
         self._runtime = runtime
         self._last_reasoning_content: str = ""
         self._active_logical_turn_id: str | None = None
+        self._active_proactive_task: dict[str, Any] | None = None
 
     @property
     def last_reasoning_content(self) -> str:
@@ -331,6 +333,10 @@ class MaisakaReasoningEngine:
         injected_messages.extend(profile_messages)
         if image_memory_message:
             injected_messages.append(image_memory_message)
+        from src.services.interaction_memory import interaction_memory
+        interaction_context = await interaction_memory.context(self._runtime.chat_stream)
+        if interaction_context:
+            injected_messages.append(interaction_context)
         return injected_messages
 
     def _refresh_jargon_reference_message(self) -> Optional[ReferenceMessage]:
@@ -589,6 +595,8 @@ class MaisakaReasoningEngine:
         """准备上下文并执行一次 Planner 请求。"""
 
         planner_started_at = time.time()
+        # 每轮重新绑定实际触发源；新用户消息打断主动轮后会立即恢复被动语义。
+        self._active_proactive_task = resolve_proactive_task(trigger_message.message_id, self._runtime._chat_history)
         state.planner_started_at = planner_started_at
         self._runtime._update_stage_status("组织上下文", "整理消息、参考信息与可用工具", round_text=round_text)
         action_tool_definitions, deferred_tools_reminder = await self._build_action_tool_definitions()
@@ -603,6 +611,10 @@ class MaisakaReasoningEngine:
             source_messages=source_messages,
             deferred_tools_reminder=deferred_tools_reminder,
         )
+        if self._active_proactive_task is not None:
+            injected_user_messages.append(
+                build_proactive_turn_prompt(self._active_proactive_task, self._runtime._chat_history)
+            )
         if not resolve_enable_visual_planner():
             log_pending_image_recognition_before_text_planner(
                 self._runtime._chat_history,
@@ -1080,6 +1092,7 @@ class MaisakaReasoningEngine:
                                 round_index += 1
                 finally:
                     self._active_logical_turn_id = None
+                    self._active_proactive_task = None
                     if self._runtime._agent_state == self._runtime._STATE_RUNNING:
                         self._runtime._enter_stop_state()
                     if self._runtime._running:
@@ -1568,6 +1581,7 @@ class MaisakaReasoningEngine:
             group_id=str(getattr(chat_stream, "group_id", "") or "").strip(),
             user_id=str(getattr(chat_stream, "user_id", "") or "").strip(),
             platform=str(getattr(chat_stream, "platform", "") or "").strip(),
+            metadata={PROACTIVE_CONTEXT_KEY: self._active_proactive_task, "logical_turn_id": self._active_logical_turn_id},
         )
 
     @staticmethod

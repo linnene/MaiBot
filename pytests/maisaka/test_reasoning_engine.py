@@ -6,6 +6,7 @@ from unittest.mock import AsyncMock, Mock
 
 import pytest
 
+from src.chat.heart_flow.heartFC_utils import CycleDetail
 from src.common.data_models.llm_service_data_models import LLMResponseResult
 from src.core.tooling import ToolExecutionContext, ToolExecutionResult, ToolInvocation
 from src.llm_models.model_client.base_client import GenerationAttempt, GenerationTrace
@@ -29,7 +30,7 @@ from src.maisaka.monitor.events import (
     _serialize_request_block,
     _serialize_tool_results,
 )
-from src.maisaka.reasoning_engine import STOP_AFTER_EXECUTION_PAUSE_REASON, MaisakaReasoningEngine
+from src.maisaka.reasoning_engine import STOP_AFTER_EXECUTION_PAUSE_REASON, CycleRuntimeState, MaisakaReasoningEngine
 
 
 class _ToolRegistryStub:
@@ -54,6 +55,7 @@ def _build_tool_engine(results: list[ToolExecutionResult]) -> tuple[MaisakaReaso
 
     runtime = SimpleNamespace(
         _tool_registry=_ToolRegistryStub(results),
+        expand_message_id_aliases=lambda arguments: arguments,
         session_id="session-test",
         chat_stream=SimpleNamespace(
             is_group_session=True,
@@ -69,6 +71,7 @@ def _build_tool_engine(results: list[ToolExecutionResult]) -> tuple[MaisakaReaso
         log_prefix="[test]",
     )
     engine = MaisakaReasoningEngine(runtime)
+    engine._emit_planner_progress = AsyncMock()  # type: ignore[method-assign]
     engine._record_tool_execution_effects = AsyncMock()  # type: ignore[method-assign]
     engine._append_tool_execution_result = lambda *args, **kwargs: None  # type: ignore[method-assign]
     engine._append_tool_post_history_messages = lambda messages: None  # type: ignore[method-assign]
@@ -102,8 +105,11 @@ async def test_successful_stop_request_finishes_after_full_tool_batch() -> None:
             ToolCall(call_id="call-3", func_name="following_tool"),
         ],
         "测试思考",
+        CycleDetail(cycle_id=1),
+        CycleRuntimeState(),
     )
 
+    assert engine._emit_planner_progress.await_count == 3
     assert should_pause is True
     assert pause_reason == STOP_AFTER_EXECUTION_PAUSE_REASON
     assert runtime._tool_registry.invoked_tool_names == [
@@ -141,8 +147,11 @@ async def test_failed_stop_request_keeps_planner_running() -> None:
             ToolCall(call_id="call-2", func_name="following_tool"),
         ],
         "测试思考",
+        CycleDetail(cycle_id=1),
+        CycleRuntimeState(),
     )
 
+    assert engine._emit_planner_progress.await_count == 2
     assert should_pause is False
     assert pause_reason == ""
     assert runtime._tool_registry.invoked_tool_names == ["terminal_tool", "following_tool"]
