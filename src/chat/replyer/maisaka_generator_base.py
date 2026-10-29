@@ -813,7 +813,10 @@ class BaseMaisakaReplyGenerator(RetroReplyPromptMixin):
             str((reply_tool_args or {}).get("reply_reference") or ""),
         )
         if global_config.experimental.persona_harness_v2 and not global_config.experimental.persona_context_compiler:
-            reply_reference_message = render_handoff(reply_tool_args or {}, chat_history)
+            reply_reference_message = render_handoff(
+                reply_tool_args or {}, chat_history,
+                target_message_id=reply_message.message_id if reply_message is not None else "",
+            )
         requested_reply_style_message = self._build_requested_reply_style_message(
             str((reply_tool_args or {}).get("reply_style") or "")
         )

@@ -795,7 +795,10 @@ class MaisakaChatLoopService:
                     "When calling reply, keep reply_reference to one short conversational intent: "
                     "choose one main purpose without piling on advice or questions. Cite necessary facts through evidence_refs "
                     "using message IDs or tool-result call IDs; never invent sources. reply_boundary defaults to brief; "
-                    "choose explain or clarify only when needed. Do not draft dialogue."
+                    "choose explain or clarify only when needed. Do not draft dialogue. "
+                    "Preserve who said what and who acts on whom; cite the relevant utterances even in casual chat. "
+                    "When the user challenges your last reply, recheck the original exchange instead of defending "
+                    "your own mistaken reply as an intentional joke or role reversal."
                 ),
                 "ja-JP": (
                     f"安定した人物像：{personality}\n"
@@ -804,12 +807,16 @@ class MaisakaChatLoopService:
                     "主な目的は一つだけにし、助言や質問を重ねないでください。必要な根拠は evidence_refs に "
                     "msg_id またはツール結果の call_id を指定し、不明な出典は作らないでください。"
                     "reply_boundary は通常 brief、説明や確認が必要な場合だけ explain または clarify。台詞は代筆しないでください。"
+                    "誰が何を言い、誰が誰に行為をするかを保ち、雑談でも必要な原文を参照してください。"
+                    "相手が直前の返答を疑問視したら原文に戻り、自分の誤答を意図的な冗談や役割逆転として擁護しないでください。"
                 ),
                 "zh-CN": (
                     f"稳定人格：{personality}\n"
                     "它只用于判断是否行动和大致态度。调用 reply 时，reply_reference 只写一个简短的会话意图；"
                     "只选一个主要回应目的，不叠加建议和追问。必要事实用 evidence_refs 引用原消息 msg_id 或工具结果 call_id；"
                     "不确定就不填，不能编造来源。reply_boundary 默认 brief，仅在确需解释或澄清时选 explain 或 clarify。不要代写台词。"
+                    "保留谁说了什么、谁对谁做什么；闲聊涉及这些关系时也引用必要原话。"
+                    "对方质疑上一句时回查原始对话，不把自己的错误回复解释成有意玩笑或角色反转来维护。"
                 ),
             }
         )

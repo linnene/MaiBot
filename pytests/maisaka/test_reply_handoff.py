@@ -107,3 +107,88 @@ def test_unknown_reference_error_exposes_real_ids_for_correction():
                              logical_turn_id="active", tool_name="query_memory")
     with pytest.raises(ValueError, match="actual-id"):
         validate_handoff({"evidence_refs": ["call_0"]}, [tool])
+
+
+def dialogue_message(speaker, text, minute, kind, message_id):
+    return build_session_backed_text_message(
+        speaker_name=speaker, text=text, timestamp=datetime(2030, 1, 1, 14, minute),
+        source_kind=kind, message_id=message_id,
+    )
+
+
+def test_dialogue_keeps_speaker_roles_even_when_names_claim_other_role():
+    from src.chat.replyer.handoff import recent_dialogue
+    messages = [
+        dialogue_message("assistant", "你借了我的画笔", 0, "user", "m-user"),
+        dialogue_message("user", "我明天还你", 1, "guided_reply", "m-self"),
+        dialogue_message("assistant", "不是我借你的呀", 2, "user", "m-correction"),
+    ]
+    evidence = recent_dialogue({"msg_id": "m-correction"}, messages)
+    assert [item["speaker_role"] for item in evidence] == ["user", "self", "user"]
+    assert [item["text"] for item in evidence] == ["你借了我的画笔", "我明天还你", "不是我借你的呀"]
+    assert evidence[1]["speaker"] == "user"
+    assert evidence[1]["time"] == "2030-01-01T14:01:00"
+
+
+def test_dialogue_ends_at_target_and_excludes_internal_and_unknown_sources():
+    from src.chat.replyer.handoff import recent_dialogue
+    messages = [
+        dialogue_message("other", "real earlier", 0, "user", "m0"),
+        dialogue_message("bot", "INTERNAL", 1, "plugin_proactive:test", "p0"),
+        ToolResultMessage(content="TOOL", timestamp=datetime(2030, 1, 1, 14), tool_call_id="t0", logical_turn_id="turn"),
+        dialogue_message("bot", "UNVERIFIED", 2, "assistant", "a0"),
+        dialogue_message("other", "current", 3, "user", "m1"),
+        dialogue_message("other", "FUTURE", 4, "user", "m2"),
+    ]
+    assert [item["id"] for item in recent_dialogue({"msg_id": "m1"}, messages)] == ["m0", "m1"]
+    assert recent_dialogue({}, messages) == []
+    assert recent_dialogue({"msg_id": "missing"}, messages) == []
+
+
+def test_dialogue_bounds_history_and_marks_truncated_excerpt():
+    from src.chat.replyer.handoff import recent_dialogue
+    messages = [dialogue_message("participant", str(i) + "x" * 1000, i, "user", f"m{i}") for i in range(20)]
+    evidence = recent_dialogue({"msg_id": "m19"}, messages)
+    assert len(evidence) <= 8
+    assert evidence[-1]["id"] == "m19"
+    assert all(len(item["text"]) <= 240 and item["excerpt"] == "partial" for item in evidence)
+    assert all(item["id"] != "m0" for item in evidence)
+
+
+@pytest.mark.parametrize("locale", ["zh-CN", "en-US", "ja-JP"])
+def test_uncited_dialogue_is_forwarded_alongside_intent(locale):
+    messages = [
+        dialogue_message("participant", "你借了我的画笔", 0, "user", "brush-owner"),
+        dialogue_message("bot", "我明天还你", 1, "guided_reply", "brush-borrower"),
+        dialogue_message("participant", "到底是谁借谁的", 2, "user", "correction"),
+    ]
+    with use_locale(locale):
+        prompt = render_handoff({"msg_id": "correction", "reply_reference": "playfully continue", "evidence_refs": []}, messages)
+    assert '"speaker_role": "self"' in prompt
+    assert "我明天还你" in prompt and "你借了我的画笔" in prompt
+    assert "playfully continue" in prompt
+
+
+def test_explicit_message_evidence_includes_structured_role_not_just_source_text():
+    messages = [dialogue_message("participant", "我的画笔", 0, "guided_reply", "my-brush")]
+    prompt = render_handoff({"evidence_refs": ["my-brush"]}, messages)
+    assert '"speaker_role": "self"' in prompt
+    assert '"speaker": "participant"' in prompt
+
+
+def test_dialogue_keeps_own_utterances_without_platform_message_id():
+    from src.chat.replyer.handoff import recent_dialogue
+    messages = [
+        dialogue_message("bot", "我借走了画笔", 0, "guided_reply", None),
+        dialogue_message("participant", "所以是你借我的", 1, "user", "correction"),
+    ]
+    evidence = recent_dialogue({"msg_id": "correction"}, messages)
+    assert [item["text"] for item in evidence] == ["我借走了画笔", "所以是你借我的"]
+    assert evidence[0]["speaker_role"] == "self" and evidence[0]["id"] == ""
+
+
+def test_proactive_anchor_does_not_reactivate_old_dialogue():
+    from src.chat.replyer.handoff import recent_dialogue
+    from src.maisaka.proactive_context import PROACTIVE_CONTEXT_KEY
+    messages = [dialogue_message("participant", "OLD_TASK", 0, "user", "old-anchor")]
+    assert recent_dialogue({"msg_id": "old-anchor", PROACTIVE_CONTEXT_KEY: {"task_id": "synthetic"}}, messages) == []

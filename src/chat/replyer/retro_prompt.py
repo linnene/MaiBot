@@ -173,7 +173,10 @@ class RetroReplyPromptMixin:
         if global_config.experimental.persona_harness_v2 and not global_config.experimental.persona_context_compiler:
             from .handoff import render_boundary, render_handoff
 
-            template_context["planner_reasoning"] = render_handoff(reply_tool_args or {}, handoff_history)
+            template_context["planner_reasoning"] = render_handoff(
+                reply_tool_args or {}, handoff_history,
+                target_message_id=reply_message.message_id if reply_message is not None else "",
+            )
             system_prompt += "\n\n" + render_boundary(reply_tool_args or {})
         proactive_task = (reply_tool_args or {}).get(PROACTIVE_CONTEXT_KEY)
         if proactive_task is not None:

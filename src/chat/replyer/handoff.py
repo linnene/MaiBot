@@ -5,12 +5,50 @@ from typing import Any, Dict, List
 import json
 
 from src.common.prompt_i18n import load_prompt
+from src.maisaka.context.message_adapter import parse_speaker_content
 from src.maisaka.context.message_id_alias import to_display_message_id
 from src.maisaka.context.messages import LLMContextMessage, SessionBackedMessage, ToolResultMessage
+from src.maisaka.proactive_context import PROACTIVE_CONTEXT_KEY
 
 BOUNDARIES = ("brief", "explain", "clarify")
 HANDOFF_TURN_KEY = "_handoff_logical_turn_id"
 MEMORY_RESULT_TOOLS = {"query_memory", "query_person_profile"}
+
+
+def _speaker_fields(message: SessionBackedMessage) -> Dict[str, str]:
+    # Names and content are untrusted display data, never a source of role identity.
+    speaker, _ = parse_speaker_content(message.processed_plain_text)
+    return {
+        "speaker_role": {"user": "user", "guided_reply": "self"}.get(message.source_kind, "unknown"),
+        "speaker": speaker or "unknown",
+    }
+
+
+def recent_dialogue(arguments: Dict[str, Any], history: List[LLMContextMessage]) -> List[Dict[str, str]]:
+    """Attach bounded real utterances ending at the selected target, without inferring actors.
+
+    Proactive/unknown targets have no implicit historical window. Internal Planner
+    outputs, tools and plugin-injected instructions are never treated as speech.
+    """
+    target_id = str(arguments.get("msg_id") or "")
+    if not target_id or arguments.get(PROACTIVE_CONTEXT_KEY) is not None:
+        return []
+    messages = [message for message in history if isinstance(message, SessionBackedMessage)
+                and message.source_kind in {"user", "guided_reply"}]
+    target_index = next((i for i, message in enumerate(messages)
+                         if message.message_id and target_id in {
+                             message.message_id, to_display_message_id(message.message_id)}), None)
+    if target_index is None:
+        return []
+    evidence: List[Dict[str, str]] = []
+    for message in messages[max(0, target_index - 7):target_index + 1]:
+        _, text = parse_speaker_content(message.processed_plain_text)
+        evidence.append({
+            "id": to_display_message_id(message.message_id), **_speaker_fields(message),
+            "time": message.timestamp.isoformat(timespec="seconds"), "text": text[:240],
+            "excerpt": "partial" if len(text) > 240 else "complete",
+        })
+    return evidence
 
 
 def handoff_properties() -> Dict[str, Any]:
@@ -33,6 +71,7 @@ def resolve_evidence(refs: List[str], history: List[LLMContextMessage]) -> List[
         if isinstance(message, SessionBackedMessage) and message.message_id:
             source = {
                 "id": message.message_id, "kind": message.source_kind,
+                **_speaker_fields(message),
                 "time": message.timestamp.isoformat(timespec="seconds"),
                 "text": message.processed_plain_text[:600],
                 "excerpt": "partial" if len(message.processed_plain_text) > 600 else "complete",
@@ -94,7 +133,9 @@ def current_turn_memory(arguments: Dict[str, Any], history: List[LLMContextMessa
     return evidence
 
 
-def render_handoff(arguments: Dict[str, Any], history: List[LLMContextMessage]) -> str:
+def render_handoff(
+    arguments: Dict[str, Any], history: List[LLMContextMessage], *, target_message_id: str | None = None,
+) -> str:
     # Never accept Planner-written fact summaries as evidence. Unknown references
     # fail before generation instead of silently fabricating provenance.
     evidence = current_turn_memory(arguments, history)
@@ -106,6 +147,9 @@ def render_handoff(arguments: Dict[str, Any], history: List[LLMContextMessage]) 
         intent=str(arguments.get("reply_reference", "")).strip()[:240],
         boundary=arguments.get("reply_boundary", "brief"),
         evidence=json.dumps(evidence, ensure_ascii=False),
+        dialogue=json.dumps(recent_dialogue(
+            arguments if target_message_id is None else {**arguments, "msg_id": target_message_id}, history,
+        ), ensure_ascii=False),
     )
 
 

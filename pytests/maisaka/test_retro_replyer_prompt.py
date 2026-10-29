@@ -807,3 +807,24 @@ def test_current_turn_cross_chat_memory_reaches_actual_replyer_input(monkeypatch
     text = "\n".join(read_item_text(item) for item in items)
     assert "Shared synthetic travel booked in private chat." in text
     assert "memory-call" in text and "retrieved_at" in text
+
+
+@pytest.mark.parametrize("retro", [False, True])
+def test_host_target_reaches_dialogue_handoff_without_tool_msg_id(monkeypatch, retro):
+    generator = build_retro_generator(is_group_session=True)
+    isolate_retro_blocks(generator, monkeypatch)
+    monkeypatch.setattr(global_config.experimental, "replyer_retro_prompt", retro)
+    monkeypatch.setattr(global_config.experimental, "persona_harness_v2", True)
+    monkeypatch.setattr(global_config.experimental, "persona_context_compiler", False)
+    target = build_original_history([TextComponent("不是我借你的")]).original_message
+    own = build_session_backed_text_message(
+        speaker_name="bot", text="我借走了画笔", timestamp=datetime(2026, 1, 1, 12),
+        source_kind="guided_reply", message_id="own-brush",
+    )
+    # reply tool deliberately removes msg_id from the arguments forwarded to Replyer.
+    items = generator._build_request_messages(
+        chat_history=[own, build_history_message("不是我借你的")], reply_message=target,
+        reply_reason="", reply_tool_args={"reply_reference": "回应纠正"},
+    )
+    text = "\n".join(read_item_text(item) for item in items)
+    assert '"speaker_role": "self"' in text and '"text": "我借走了画笔"' in text
