@@ -132,7 +132,7 @@
       "source": {
         "repository": "https://github.com/linnene/MaiBot.git",
         "ref": "feat/proactive-intents-reminders",
-        "commit": "f9898be3dc18847720b870153202c1dcdf888dc7"
+        "commit": "1c24fa3145afe076ee0393e5c57be71f8053d884"
       },
       "upstream": "https://github.com/linnene/MaiBot",
       "private_runtime_assets": [
