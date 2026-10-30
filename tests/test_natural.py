@@ -303,3 +303,14 @@ def test_cross_plugin_real_sqlite_lease_receipt_contract(tmp_path):
         assert (await store.status())["pending_reservations"] == 0
         assert await store.materials(3) == []
     asyncio.run(replay())
+
+
+def test_independent_text_is_not_republished_after_restart(tmp_path):
+    draft={"skip":False,"text":"今天想安静画一会儿。","material_id":"","image_query":""}
+    service,_=setup(tmp_path,draft=draft)
+    publish=AsyncMock(return_value="first-fid")
+    assert asyncio.run(service.publish("",publish))["success"]
+    restarted,_=setup(tmp_path,draft=draft)
+    result=asyncio.run(restarted.publish("",publish))
+    assert result.get("skipped") is True
+    assert publish.await_count==1

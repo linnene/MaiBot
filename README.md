@@ -257,3 +257,5 @@ self.ctx.logger.info(f"API 调用结果:{result}")
 发送前通过娱乐插件 `reserve_material` 取得持久租约；只有 Qzone 返回真实动态 ID 后调用 `record_share(..., receipt_id=str(fid), lease_id=...)`。明确失败释放租约；超时、崩溃等不确定结果保留租约及插件数据目录的 `natural_receipts.json` 待人工核对，避免重启重复发送。分享登记暂时失败仍保留已成功发布的本地收据。人工核对真实空间后，才能决定补登记或通过 `release_material(material_id,lease_id)` 释放；不要直接删除防重记录后重试。
 
 离线回放：`python -m pytest tests/test_natural.py -q`。测试使用合成素材、模拟 SDK/LLM/HTTP/Qzone，无真实 QQ 发送、登录或模型请求；不证明自然程度、在线账号稳定性或视觉服务可用。
+
+自然模式还按最终正文指纹及图片字节指纹抑制最近50条重复，独立碎念跨重启也保留；结果不明时留待核对，不盲目重发。指纹不能检测所有语义近重复。配图原URL保存在本地结果/收据历史中，不声明为自己的摄影。

@@ -8,6 +8,7 @@ import base64
 import http.client
 import ipaddress
 import json
+import hashlib
 import math
 import socket
 import ssl
@@ -136,6 +137,35 @@ class NaturalFeedService:
         temp.write_text(json.dumps(records, ensure_ascii=False))
         temp.replace(self.journal_path)
 
+    def _fingerprints(self):
+        path = self.journal_path.with_suffix('.history.json')
+        value = json.loads(path.read_text()) if path.exists() else []
+        if not isinstance(value,list):
+            raise ValueError('invalid feed fingerprint history')
+        return value
+
+    @staticmethod
+    def _text_hash(message):
+        return hashlib.sha256(''.join(message.split()).casefold().encode()).hexdigest()
+
+    def _record_output(self, draft, receipt=''):
+        digest = self._text_hash(draft['message'])
+        records = [record for record in self._fingerprints() if record['text_hash'] != digest]
+        records.append({'text_hash':digest,'receipt_id':receipt,'image_url':draft.get('image_url',''),'image_hashes':[
+            hashlib.sha256(image).hexdigest() for image in draft['images']]})
+        path = self.journal_path.with_suffix('.history.json')
+        path.parent.mkdir(parents=True,exist_ok=True)
+        temporary = path.with_suffix('.tmp')
+        temporary.write_text(json.dumps(records[-50:]))
+        temporary.replace(path)
+
+    def _forget_output(self, message):
+        path = self.journal_path.with_suffix('.history.json')
+        temporary = path.with_suffix('.tmp')
+        temporary.write_text(json.dumps([record for record in self._fingerprints()
+                                        if record['text_hash'] != self._text_hash(message)]))
+        temporary.replace(path)
+
     async def draft(self, topic: str = "") -> Dict[str, Any]:
         cfg = self.plugin.config
         if not cfg.send.natural_mode:
@@ -212,6 +242,13 @@ class NaturalFeedService:
             images, image_url = await self._image(message, material, draft["image_query"])
             if images:
                 message += "\n配图来源：" + image_url
+        history = await asyncio.to_thread(self._fingerprints)
+        if any(record['text_hash'] == self._text_hash(message) for record in history):
+            return {"success":True,"skipped":True,"message":"","material_id":"","images":[],"image_url":""}
+        prior_images = {value for record in history for value in record.get('image_hashes',[])}
+        images = [image for image in images if hashlib.sha256(image).hexdigest() not in prior_images]
+        if not images:
+            image_url = ""
         return {"success": True, "skipped": False, "message": message, "material_id": draft["material_id"], "images": images, "image_url": image_url}
 
     async def _image(self, message: str, material, query: str):
@@ -261,11 +298,13 @@ class NaturalFeedService:
                 except Exception:
                     await self._call("local.entertainment.release_material", material_id=material_id, lease_id=lease_id)
                     raise
+            await asyncio.to_thread(self._record_output,draft)
             receipt = await publish(draft["message"], draft["images"])
             if receipt is None or isinstance(receipt, bool) or not isinstance(receipt, (str, int)) or not str(receipt).strip():
                 if material_id:
                     await self._call("local.entertainment.release_material", material_id=material_id, lease_id=lease_id)
                     await asyncio.to_thread(self._release, material_id)
+                await asyncio.to_thread(self._forget_output,draft["message"])
                 return {"success": False, "error": "Qzone publish returned no receipt"}
             if material_id:
                 await asyncio.to_thread(self._reserve, material_id, str(receipt), lease_id)
@@ -275,4 +314,5 @@ class NaturalFeedService:
                         raise ValueError("receipt record rejected")
                 except Exception as exc:
                     self.plugin.ctx.logger.warning("Qzone receipt retained locally; record_share failed: " + type(exc).__name__)
+            await asyncio.to_thread(self._record_output,draft,str(receipt))
             return {"success": True, "message": draft["message"], "receipt_id": str(receipt), "skipped": False}
