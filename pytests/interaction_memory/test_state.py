@@ -186,3 +186,29 @@ def test_existing_strategy_deliveries_are_observed_once(store):
     store.delivered('session','legacy-proactive',NOW+1)
     assert store.snapshot('session')['conversation']['unanswered']==1
     assert len([row for row in store.overview()['decisions'] if row['status']=='sent'])==1
+
+
+def expanded_frequency_config():
+    return InteractionMemoryConfig(daily_target_min=3,daily_target_max=5,daily_hard_max=8,
+                                   life_daily_max=2,min_interval_minutes=90,max_unanswered=2)
+
+
+def test_expanded_frequency_retains_unanswered_and_interval_gates(store):
+    cfg=expanded_frequency_config();candidate={'kind':'life','topic':'合成话题','daily_cap':8}
+    store.run(lambda db:db.execute('UPDATE conversations SET unanswered=2'))
+    assert store.decide('session',candidate,cfg,NOW,reserve=False)['reason']=='unanswered_backoff'
+    store.run(lambda db:db.execute('UPDATE conversations SET unanswered=0,last_proactive_at=?,last_bot_at=?',(NOW-80*60,NOW-80*60)))
+    assert store.decide('session',candidate,cfg,NOW,reserve=False)['reason']=='adaptive_cooldown'
+
+
+def test_expanded_life_allowance_is_still_a_cap_not_a_send_requirement(store):
+    cfg=expanded_frequency_config()
+    for index in range(2):
+        now=NOW+index*100*60
+        result=store.decide('session',{'kind':'life','topic':'不同的生活话题'+str(index),'daily_cap':8},cfg,now,reserve=True)
+        assert result['eligible']
+        task='synthetic-expanded-'+str(index)
+        store.bind_task(result['id'],task);store.delivered('session',task,now)
+        store.observe('session','ack-'+str(index),'嗯嗯',now+1)
+    result=store.decide('session',{'kind':'life','topic':'第三个生活话题','daily_cap':8},cfg,NOW+200*60,reserve=False)
+    assert result['reason']=='life_share_limit'
