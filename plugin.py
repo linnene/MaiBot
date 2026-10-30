@@ -2017,6 +2017,15 @@ class MaiLifePlugin(MaiBotPlugin):
     @API(name="get_life_state",description="获取麦麦全局生活状态",version="1",public=True)
     async def api_get_state(self,**kwargs:Any)->dict[str,Any]:return await self._store.get_state() if self._store else {}
 
+    @API(name="get_public_life_state",description="获取可公开的生活类别与空闲标记，不含地点、原始日程、作品或关系",version="1",public=True)
+    async def api_get_public_state(self,**kwargs:Any)->dict[str,Any]:
+        from .life.public_projection import public_life_state
+        if not self._ready or not self._store or not self._schedule or not self._env:
+            return public_life_state({}, {})
+        state=await self._store.get_state()
+        context=await self._schedule.context(self._env.now())
+        return public_life_state(state, context.get("current") or {})
+
     @API(name="get_current_scene",description="获取麦麦当前细化场景",version="1",public=True)
     async def api_get_scene(self,**kwargs:Any)->dict[str,Any]:
         if not self._ready:return {}
