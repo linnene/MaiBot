@@ -96,8 +96,17 @@ class Store:
             CREATE TABLE IF NOT EXISTS patrol(id INTEGER PRIMARY KEY CHECK(id=1), last_at REAL NOT NULL);
             CREATE TABLE IF NOT EXISTS decisions(id INTEGER PRIMARY KEY, at REAL NOT NULL, reason TEXT NOT NULL);
             CREATE TABLE IF NOT EXISTS pending(task_id TEXT PRIMARY KEY, material_id TEXT NOT NULL, channel TEXT NOT NULL, session TEXT NOT NULL, expires REAL NOT NULL);
+            CREATE TABLE IF NOT EXISTS previews(material_id TEXT PRIMARY KEY, lease_id TEXT NOT NULL, data TEXT NOT NULL, created REAL NOT NULL);
+            CREATE TABLE IF NOT EXISTS request_bindings(session TEXT NOT NULL, anchor TEXT NOT NULL, task_id TEXT NOT NULL, created REAL NOT NULL, PRIMARY KEY(session,anchor));
             ''')
+            self._prune_previews(db)
         await asyncio.to_thread(self._work, init)
+
+    @staticmethod
+    def _prune_previews(db):
+        # Prune payloads, never ambiguous-send leases/receipts. Old tasks fail closed.
+        db.execute('DELETE FROM previews WHERE created<? OR material_id NOT IN (SELECT id FROM readings) OR NOT EXISTS(SELECT 1 FROM leases l WHERE l.material_id=previews.material_id AND l.lease_id=previews.lease_id)',(time.time()-1200,))
+        db.execute('DELETE FROM previews WHERE material_id IN (SELECT material_id FROM previews ORDER BY created DESC LIMIT -1 OFFSET 100)')
 
     async def save(self, material: dict, impression: str, remember: bool):
         allowed = {key:material[key] for key in ('id','source_kind','title','url','author','observed_at','images')}
@@ -133,6 +142,7 @@ class Store:
         def release(db):
             deleted = db.execute('DELETE FROM leases WHERE material_id=? AND lease_id=?', (material_id,lease_id)).rowcount
             db.execute('DELETE FROM pending WHERE material_id=? AND NOT EXISTS(SELECT 1 FROM leases WHERE material_id=?)', (material_id,material_id))
+            db.execute('DELETE FROM previews WHERE material_id=? AND lease_id=?', (material_id,lease_id))
             return {'success':bool(deleted)}
         return await asyncio.to_thread(self._work, release)
 
@@ -156,8 +166,52 @@ class Store:
             db.execute('INSERT INTO shares VALUES(?,?,?,?,?)', (material_id, channel, hashlib.sha256(str(target_id).encode()).hexdigest(), receipt_id, time.time()))
             db.execute('DELETE FROM leases WHERE material_id=?', (material_id,))
             db.execute('DELETE FROM pending WHERE material_id=?', (material_id,))
+            db.execute('DELETE FROM previews WHERE material_id=?', (material_id,))
             return {'success':True, 'already_shared':False}
         return await asyncio.to_thread(self._work, record)
+
+    async def attach_preview(self, material_id, lease_id, preview):
+        if not isinstance(preview,str) or not preview or len(preview)>140000:
+            return False
+        def attach(db):
+            db.execute('BEGIN IMMEDIATE')
+            if not db.execute('SELECT 1 FROM leases WHERE material_id=? AND lease_id=?',(material_id,lease_id)).fetchone():
+                return False
+            db.execute('INSERT OR REPLACE INTO previews VALUES(?,?,?,?)',(material_id,lease_id,preview,time.time()))
+            self._prune_previews(db)
+            return True
+        return await asyncio.to_thread(self._work,attach)
+
+    async def get_preview(self, material_id):
+        def get(db):
+            row=db.execute('SELECT p.data FROM previews p JOIN leases l ON p.material_id=l.material_id AND p.lease_id=l.lease_id WHERE p.material_id=? AND p.created>?',(material_id,time.time()-1200)).fetchone()
+            return row[0] if row else ''
+        return await asyncio.to_thread(self._work,get)
+
+    async def available_material(self, material_id):
+        def get(db):
+            row=db.execute('SELECT material FROM readings WHERE id=? AND remembered=1 AND id NOT IN (SELECT material_id FROM shares) AND id NOT IN (SELECT material_id FROM leases)',(material_id,)).fetchone()
+            return json.loads(row[0]) if row else {}
+        return await asyncio.to_thread(self._work,get)
+
+    async def bind_request(self, session, anchor, task_id=''):
+        def bind(db):
+            if task_id:
+                db.execute('INSERT OR REPLACE INTO request_bindings VALUES(?,?,?,?)',(session,anchor,task_id,time.time()))
+            else:
+                db.execute('DELETE FROM request_bindings WHERE session=? AND anchor=?',(session,anchor))
+            db.execute('DELETE FROM request_bindings WHERE created<?',(time.time()-86400,))
+            db.execute('DELETE FROM request_bindings WHERE rowid IN (SELECT rowid FROM request_bindings ORDER BY created DESC LIMIT -1 OFFSET 1000)')
+        await asyncio.to_thread(self._work,bind)
+
+    async def request_context(self, session, anchor):
+        def get(db):
+            row=db.execute("SELECT r.task_id,r.session,COALESCE(p.material_id,'') AS material_id,COALESCE(p.channel,'') AS channel FROM request_bindings r LEFT JOIN pending p ON p.task_id=r.task_id AND p.session=r.session WHERE r.session=? AND r.anchor=?",(session,anchor)).fetchone()
+            return dict(row) if row else {}
+        return await asyncio.to_thread(self._work,get)
+
+    async def request_keys(self):
+        return await asyncio.to_thread(self._work,lambda db:[(r[0],r[1]) for r in db.execute('SELECT session,anchor FROM request_bindings ORDER BY created')])
 
     async def recall(self, query, limit=3):
         query = text(query, 80)
@@ -239,10 +293,11 @@ class Reader:
             return {'success':False, 'reason':'busy'}
         async with self.gate:
             if not await self.store.take_budget(max(0,min(24,int(daily_budget)))):
+                await self.store.decision('budget')
                 return {'success':False, 'reason':'budget'}
             try:
                 result = await asyncio.wait_for(self._read(interests, max_items, prefer_search), timeout=240.)
-                await self.store.decision('browsed')
+                await self.store.decision('browsed' if result.get('success') else result.get('reason','browse_failed'))
                 return result
             except asyncio.CancelledError:
                 raise

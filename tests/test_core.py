@@ -183,3 +183,55 @@ class SourceImageNormalizationTests(unittest.TestCase):
     def test_cdn_http_cover_is_upgraded_but_unrelated_http_is_rejected(self):
         item=normalize_feed({'id':'synthetic123','cover':{'urlDefault':'http://sns-webpic-qc.xhscdn.com/a'},'imageList':[{'url':'http://private.test/a'}]})
         self.assertEqual(item['images'],['https://sns-webpic-qc.xhscdn.com/a'])
+
+class ReviewConcurrencyTests(StoreFixture):
+    async def test_concurrent_reservations_have_only_one_winner(self):
+        item=normalize_feed({'id':'concurrent-note'});await self.store.save(item,'喜欢',True)
+        results=await asyncio.gather(*(self.store.reserve(item['id'],'private','same') for _ in range(16)))
+        self.assertEqual(sum(x['success'] for x in results),1)
+
+    async def test_concurrent_budget_never_exceeds_limit(self):
+        results=await asyncio.gather(*(self.store.take_budget(3) for _ in range(16)))
+        self.assertEqual(sum(results),3)
+
+    async def test_budget_skip_is_observable(self):
+        reader=Reader(self.store,None,None)
+        result=await reader.browse(True,'leisure',['leisure'],['摄影'],0,1)
+        self.assertEqual(result['reason'],'budget')
+        self.assertEqual((await self.store.status())['last_reason'],'budget')
+
+    async def test_login_failure_not_overwritten_by_browsed(self):
+        class Client:
+            async def call(self,*args,**kwargs):return {'is_logged_in':False}
+        result=await Reader(self.store,Client(),None).browse(True,'leisure',['leisure'],['摄影'],1,1)
+        self.assertEqual(result['reason'],'login_required')
+        self.assertEqual((await self.store.status())['last_reason'],'login_required')
+
+    async def test_persisted_preview_requires_current_lease_and_is_cleaned_on_receipt(self):
+        item=normalize_feed({'id':'preview-note'});await self.store.save(item,'喜欢',True)
+        lease=await self.store.reserve(item['id'],'private','session')
+        self.assertFalse(await self.store.attach_preview(item['id'],'wrong','preview'))
+        self.assertFalse(await self.store.attach_preview(item['id'],lease['lease_id'],'x'*140001))
+        self.assertTrue(await self.store.attach_preview(item['id'],lease['lease_id'],'preview'))
+        restarted=Store(self.path);await restarted.initialize()
+        self.assertEqual(await restarted.get_preview(item['id']),'preview')
+        result=await restarted.record_share(item['id'],'private','session','platform',lease['lease_id'])
+        self.assertTrue(result['success']);self.assertEqual(await restarted.get_preview(item['id']),'')
+
+    async def test_preview_release_cannot_delete_another_lease(self):
+        item=normalize_feed({'id':'release-note'});await self.store.save(item,'喜欢',True)
+        lease=await self.store.reserve(item['id'],'private','session')
+        await self.store.attach_preview(item['id'],lease['lease_id'],'preview')
+        self.assertFalse((await self.store.release(item['id'],'wrong'))['success'])
+        self.assertEqual(await self.store.get_preview(item['id']),'preview')
+        self.assertTrue((await self.store.release(item['id'],lease['lease_id']))['success'])
+        self.assertEqual(await self.store.get_preview(item['id']),'')
+
+    async def test_preview_payloads_have_a_global_count_bound_without_releasing_leases(self):
+        for index in range(105):
+            item=normalize_feed({'id':'bound-preview-'+str(index)});await self.store.save(item,'喜欢',True)
+            lease=await self.store.reserve(item['id'],'private','session')
+            await self.store.attach_preview(item['id'],lease['lease_id'],'preview')
+        counts=await asyncio.to_thread(self.store._work,lambda db:(db.execute('SELECT COUNT(*) FROM previews').fetchone()[0],db.execute('SELECT COUNT(*) FROM leases').fetchone()[0]))
+        self.assertLessEqual(counts[0],100)
+        self.assertEqual(counts[1],105)

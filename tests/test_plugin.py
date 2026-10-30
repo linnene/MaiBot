@@ -255,3 +255,101 @@ class PluginTests(unittest.IsolatedAsyncioTestCase):
         self.assertNotIn('modified_kwargs',await self.p.guard_share(**args,response=good))
         passive=dict(args,reply_tool_args={},reply_message_id='passive-anchor')
         self.assertNotIn('modified_kwargs',await self.p.share_brief(**passive))
+
+    async def _queue_review_case(self, require_image=False):
+        self.p.config.plugin.enabled=True
+        self.p.config.reading.preview=False
+        self.p.config.sharing.auto_share=True
+        self.p.config.sharing.allowed_private_sessions=['real-session']
+        self.p.config.sharing.require_image=require_image
+        if require_image:
+            data=BytesIO();Image.new('RGB',(400,1200),'green').save(data,format='JPEG')
+            self.p._load_source_image=AsyncMock(return_value=base64.b64encode(data.getvalue()).decode())
+        result=await self.p.prepare_share('private','real-session',True)
+        self.assertTrue(result['success'])
+        await self.p.track_request(session_id='real-session',reply_message_id='review',reply_tool_args={'_host_proactive_task':{'task_id':result['task_id']}})
+        message={'session_id':'real-session','processed_plain_text':'想试试 '+self.item['url'],'raw_message':[{'type':'text','data':self.item['url']}],'message_info':{}}
+        return result,message
+
+    async def test_required_preview_survives_plugin_reload_without_network_in_send_hook(self):
+        result,message=await self._queue_review_case(require_image=True)
+        await self.p.on_config_update('self',{},'reload')
+        self.p._load_source_image=AsyncMock(side_effect=AssertionError('send hook must not fetch'))
+        await self.p.track_request(session_id='real-session',reply_message_id='review',reply_tool_args={'_host_proactive_task':{'task_id':result['task_id']}})
+        tagged=await self.p.tag_send(message=message,reply_message_id='review')
+        parts=tagged['modified_kwargs']['message']['raw_message']
+        self.assertEqual(parts[-1]['type'],'image')
+        with Image.open(BytesIO(base64.b64decode(parts[-1]['binary_data_base64']))) as im:self.assertEqual(im.size,(360,200))
+
+    async def test_revoked_destination_aborts_already_queued_share(self):
+        _,message=await self._queue_review_case()
+        self.p.config.sharing.allowed_private_sessions=[]
+        self.assertEqual((await self.p.tag_send(message=message,reply_message_id='review'))['action'],'abort')
+
+    async def test_disabled_sharing_aborts_even_non_source_fragment(self):
+        _,message=await self._queue_review_case()
+        self.p.config.sharing.auto_share=False
+        message['processed_plain_text']='刚刷到个帖子'
+        self.assertEqual((await self.p.tag_send(message=message,reply_message_id='review'))['action'],'abort')
+
+    async def test_expired_pending_cannot_send_as_untracked_plain_link(self):
+        _,message=await self._queue_review_case()
+        await asyncio.to_thread(self.p.store._work,lambda db:db.execute('UPDATE pending SET expires=0'))
+        self.assertEqual((await self.p.tag_send(message=message,reply_message_id='review'))['action'],'abort')
+
+    async def test_selected_older_material_is_not_limited_to_latest_five(self):
+        self.p.config.plugin.enabled=True
+        self.p.config.sharing.allowed_private_sessions=['real-session']
+        for index in range(8):await self.p.store.save(normalize_feed({'id':'new-note-'+str(index)}),'有趣',True)
+        result=await self.p.prepare_share('private','real-session',material_id=self.item['id'])
+        self.assertTrue(result['success'])
+        self.assertEqual(result['material']['id'],self.item['id'])
+
+    async def test_visual_judgment_cache_is_bounded(self):
+        self.p._load_source_image=AsyncMock(return_value='synthetic-image')
+        for index in range(15):await self.p.judge(dict(self.item,id='image-'+str(index),images=['https://sns-webpic-qc.xhscdn.com/a']))
+        self.assertLessEqual(len(self.p._source_images),10)
+
+    async def test_missing_required_preview_aborts_without_image_download(self):
+        _,message=await self._queue_review_case(require_image=True)
+        await asyncio.to_thread(self.p.store._work,lambda db:db.execute('DELETE FROM previews'))
+        self.p._load_source_image=AsyncMock(side_effect=AssertionError('must not download'))
+        self.assertEqual((await self.p.tag_send(message=message,reply_message_id='review'))['action'],'abort')
+        self.assertEqual((await self.p.store.status())['shared'],0)
+
+    async def test_stale_own_task_after_restart_is_blocked(self):
+        self.p.config.plugin.enabled=True
+        await self.p.track_request(session_id='real-session',reply_message_id='stale',reply_tool_args={'_host_proactive_task':{'task_id':'proactive:local.entertainment:stale'}})
+        result=await self.p.tag_send(message={'session_id':'real-session','processed_plain_text':'stale','raw_message':[]},reply_message_id='stale')
+        self.assertEqual(result['action'],'abort')
+
+    async def test_other_session_cannot_consume_own_task_receipt(self):
+        _,message=await self._queue_review_case()
+        tagged=(await self.p.tag_send(message=message,reply_message_id='review'))['modified_kwargs']['message']
+        tagged.update(session_id='other-session',platform_message_id='other-platform')
+        await self.p.after_send(message=tagged,sent=True)
+        self.assertEqual((await self.p.store.status())['shared'],0)
+
+    async def test_config_reload_cannot_lose_in_flight_revocation_without_retracking(self):
+        _,message=await self._queue_review_case(require_image=True)
+        self.p.config.sharing.allowed_private_sessions=[]
+        await self.p.on_config_update('self',{},'revoked')
+        # The model was already in flight: there is no second before-model hook.
+        self.assertEqual((await self.p.tag_send(message=message,reply_message_id='review'))['action'],'abort')
+
+    async def test_lost_volatile_request_map_recovers_required_preview(self):
+        _,message=await self._queue_review_case(require_image=True)
+        self.p._request_tasks.clear()
+        result=await self.p.tag_send(message=message,reply_message_id='review')
+        self.assertEqual(result['modified_kwargs']['message']['raw_message'][-1]['type'],'image')
+
+    async def test_passive_turn_clears_persisted_request_binding(self):
+        _,message=await self._queue_review_case()
+        self.p._request_tasks.clear()
+        await self.p.track_request(session_id='real-session',reply_message_id='review',reply_tool_args={})
+        self.assertEqual(await self.p.tag_send(message=message,reply_message_id='review'),{'action':'continue'})
+
+    async def test_untracked_passive_send_does_not_read_share_storage(self):
+        self.p.store.request_context=AsyncMock(side_effect=AssertionError('ordinary sends must not read tracked state'))
+        result=await self.p.tag_send(message={'session_id':'unrelated','processed_plain_text':'你好'},reply_message_id='ordinary')
+        self.assertEqual(result,{'action':'continue'})
