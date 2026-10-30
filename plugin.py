@@ -12,7 +12,7 @@ from maibot_sdk.types import HookMode, ToolParameterInfo, ToolParamType
 
 from .core import CHANNELS, Reader, Store
 from .mcp_client import MCPClient
-from .source_image import source_image
+from .source_image import source_image, compact_preview_base64
 
 
 class PluginSection(PluginConfigBase):
@@ -58,6 +58,7 @@ class EntertainmentPlugin(MaiBotPlugin):
         self._share_task = None
         self._share_result = {'state':'idle'}
         self._source_images = {}
+        self._share_previews = {}
         self._manual_result = {'state':'idle'}
         self._request_tasks = {}
         self.store = Store(Path(self.ctx.paths.data_dir) / 'readings.sqlite3', self.config.reading.budget_timezone)
@@ -293,14 +294,14 @@ class EntertainmentPlugin(MaiBotPlugin):
                 return {'success':False, 'reason':'not_real_session'}
         except Exception:
             return {'success':False, 'reason':'session_resolution_failed'}
-        image = await self._load_source_image(material)
+        image = await self._load_share_preview(material)
         if self.config.sharing.require_image and not image:
             await self.store.decision('source_image_unavailable')
             return {'success':False,'reason':'source_image_unavailable'}
         if image:
-            self._source_images[material['id']] = image
-            if len(self._source_images) > 10:
-                self._source_images.pop(next(iter(self._source_images)))
+            self._share_previews[material['id']] = image
+            if len(self._share_previews) > 10:
+                self._share_previews.pop(next(iter(self._share_previews)))
         lease = await self.reserve_material(material['id'],channel,target_id)
         if not lease.get('success'):
             return lease
@@ -399,13 +400,23 @@ class EntertainmentPlugin(MaiBotPlugin):
         if not records or records['url'] not in str(message.get('processed_plain_text') or ''):
             return {'action':'continue'}
         message = copy.deepcopy(message)
-        image = self._source_images.get(pending['material_id'])
+        image = self._share_previews.get(pending['material_id'])
         if image and isinstance(message.get('raw_message'),list):
-            message['raw_message'].append({'type':'image','data':'原帖配图','binary_data_base64':image})
+            message['raw_message'].append({'type':'image','data':'原帖缩略预览','binary_data_base64':image})
         info = message.setdefault('message_info',{})
         info.setdefault('additional_config',{})['entertainment_task_id'] = pending['task_id']
         kwargs['message'] = message
         return {'action':'continue','modified_kwargs':kwargs}
+
+    async def _load_share_preview(self, material):
+        original = await self._load_source_image(material)
+        if not original:
+            return ''
+        try:
+            return await asyncio.to_thread(compact_preview_base64, original)
+        except (ValueError, OSError):
+            await self.store.decision('share_preview_invalid')
+            return ''
 
     async def _load_source_image(self, material):
         if material['id'] in self._source_images:

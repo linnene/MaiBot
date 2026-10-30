@@ -1,4 +1,5 @@
 import asyncio
+import base64
 import importlib.util
 import json
 import logging
@@ -8,6 +9,8 @@ import types
 import unittest
 from unittest.mock import AsyncMock
 from pathlib import Path
+from io import BytesIO
+from PIL import Image
 from types import SimpleNamespace
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -197,14 +200,20 @@ class PluginTests(unittest.IsolatedAsyncioTestCase):
         result=await self.p.prepare_share('private','real-session',True)
         self.assertEqual(result['reason'],'source_image_unavailable')
         self.assertEqual(self.triggered,[])
-        self.p._load_source_image=AsyncMock(return_value='validated-image-base64')
+        original=BytesIO();Image.new('RGB',(400,1600),'blue').save(original,format='JPEG')
+        original=base64.b64encode(original.getvalue()).decode()
+        self.p._load_source_image=AsyncMock(return_value=original)
         result=await self.p.prepare_share('private','real-session',True)
         await self.p.track_request(session_id='real-session',reply_message_id='image-anchor',reply_tool_args={'_host_proactive_task':{'task_id':result['task_id']}})
         raw={'session_id':'real-session','processed_plain_text':self.item['url'],'raw_message':[{'type':'text','data':self.item['url']}],'message_info':{}}
         tagged=await self.p.tag_send(message=raw,reply_message_id='image-anchor')
         image=tagged['modified_kwargs']['message']['raw_message'][-1]
         self.assertEqual(image['type'],'image')
-        self.assertEqual(image['binary_data_base64'],'validated-image-base64')
+        self.assertNotEqual(image['binary_data_base64'],original)
+        with Image.open(BytesIO(base64.b64decode(image['binary_data_base64']))) as preview:
+            self.assertEqual(preview.size,(360,200))
+        await self.p.judge(dict(self.item,images=['https://sns-webpic-qc.xhscdn.com/picture']))
+        self.assertEqual(self.prompts[-1]['prompt'][-1]['content'][1]['image_url']['url'],'data:image/jpeg;base64,'+original)
         other=dict(raw,processed_plain_text='unrelated')
         self.assertNotIn('modified_kwargs',await self.p.tag_send(message=other,reply_message_id='image-anchor'))
 

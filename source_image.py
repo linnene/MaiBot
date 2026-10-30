@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from io import BytesIO
+import base64
 from urllib.parse import urlsplit
 import asyncio
 import ipaddress
@@ -10,7 +11,7 @@ import warnings
 
 import aiohttp
 from aiohttp.abc import AbstractResolver
-from PIL import Image
+from PIL import Image, ImageOps
 
 MAX_BYTES = 4 * 1024 * 1024
 
@@ -98,6 +99,25 @@ def thumbnail_base64(data: bytes) -> str:
         im.save(out, format='JPEG', quality=80)
     if len(out.getvalue()) > 250000:
         raise ValueError('Thumbnail exceeds hook payload budget')
+    return base64.b64encode(out.getvalue()).decode('ascii')
+
+
+def compact_preview_base64(encoded: str) -> str:
+    """A small, fixed-size share preview; keep the original separate for judgment."""
+    if len(encoded) > MAX_BYTES * 2:
+        raise ValueError('Preview input exceeds byte budget')
+    data = base64.b64decode(encoded, validate=True)
+    validate_image(data)
+    with Image.open(BytesIO(data)) as source:
+        source.seek(0)
+        image = ImageOps.exif_transpose(source).convert('RGB')
+        image.thumbnail((344, 184), Image.Resampling.LANCZOS)
+        canvas = Image.new('RGB', (360, 200), '#f5f5f5')
+        canvas.paste(image, ((360-image.width)//2, (200-image.height)//2))
+        out = BytesIO()
+        canvas.save(out, format='JPEG', quality=85)
+    if len(out.getvalue()) > 100000:
+        raise ValueError('Preview output exceeds byte budget')
     return base64.b64encode(out.getvalue()).decode('ascii')
 
 async def source_image(urls: list[str]) -> str:
