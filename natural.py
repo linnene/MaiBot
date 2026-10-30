@@ -80,7 +80,7 @@ def public_life_projection(state: Any) -> Dict[str, str]:
         value = state.get(key)
         if type(value) in (int, float) and math.isfinite(value) and low <= value <= high:
             result[key] = ("low" if value < (low + (high-low)/3) else "high" if value > (high-(high-low)/3) else "neutral")
-    activities = {"阅读": "reading", "做饭": "cooking", "休息": "resting", "散步": "walking", "画画": "drawing", "睡觉": "sleeping"}
+    activities = {"阅读": "reading", "做饭": "cooking", "休息": "resting", "散步": "walking", "画画": "drawing", "睡觉": "sleeping", "自由活动": "free", "工作": "working", "学习": "studying", "吃饭": "eating", "运动": "exercising"}
     if state.get("current_activity") in activities:
         result["activity"] = activities[state["current_activity"]]
     return result
@@ -181,7 +181,7 @@ class NaturalFeedService:
         state = {}
         if cfg.send.enable_life_context:
             try:
-                state = public_life_projection(await self._call("maibot-community.mai-life.get_life_state"))
+                state = public_life_projection(await self._call("maibot-community.mai-life.get_public_life_state"))
             except Exception as exc:
                 self.plugin.ctx.logger.warning("Life projection unavailable: " + type(exc).__name__)
         prompt = (

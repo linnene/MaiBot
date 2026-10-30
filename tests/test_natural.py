@@ -26,7 +26,7 @@ def setup(tmp_path, draft=None, materials=None):
         calls.append((name, kwargs))
         if name.endswith("get_materials"):
             return {"success": True, "materials": materials if materials is not None else [source()]}
-        if name.endswith("get_life_state"):
+        if name.endswith("get_public_life_state"):
             return {"energy": 70, "current_location": "SECRET", "current_activity": "SECRET", "diary": "SECRET"}
         if name.endswith("reserve_material"):
             return {"success": True, "lease_id": "lease1"}
