@@ -10,3 +10,4 @@ aiohttp-socks>=0.8.0
 brotli>=1.0.0
 ddgs>=9.0.0
 httpx>=0.25.0
+Pillow>=10.0.0

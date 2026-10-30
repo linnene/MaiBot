@@ -82,6 +82,11 @@
       "type": "python_package",
       "name": "httpx",
       "version_spec": ">=0.25.0"
+    },
+    {
+      "type": "python_package",
+      "name": "Pillow",
+      "version_spec": ">=10.0.0"
     }
   ],
   "capabilities": [
@@ -101,10 +106,3 @@
   },
   "id": "xxxxx7258.google-search-plugin"
 }
-
-
-
-
-
-
-

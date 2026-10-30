@@ -16,7 +16,7 @@ from typing import Any, Mapping, Optional
 
 import logging
 
-from maibot_sdk import Action, Command, MaiBotPlugin, Tool
+from maibot_sdk import API, Action, Command, MaiBotPlugin, Tool
 from maibot_sdk.types import ActivationType, ToolParameterInfo, ToolParamType
 
 from .config import GoogleSearchPluginConfig
@@ -431,6 +431,26 @@ class GoogleSearchPlugin(MaiBotPlugin):
             lines = "\n".join(f"• {t}" for t in translations)
             content = f"网络用语「{term}」的可能含义：\n{lines}"
         return {"name": "abbreviation_translate", "content": content}
+
+    @API(name="search_image_material", description="检索公开图片素材，仅返回数据，不发送聊天消息", version="1", public=True)
+    async def search_image_material(self, query: str = "", **kwargs: Any) -> dict[str, Any]:
+        del kwargs
+        from .pipelines.image_material import search_material
+        if not self.config.actions.image_search_enabled:
+            return {"success": False, "error": "image_search_disabled"}
+        query = (query or "").strip()
+        error = query_error(query)
+        if error:
+            return {"success": False, "error": "invalid_public_image_query"}
+        if not self._ensure_pipelines_ready() or self._image_pipeline is None:
+            return {"success": False, "error": "image_search_unavailable"}
+        try:
+            return await search_material(query, self._image_pipeline._search_with_fallback)
+        except TimeoutError:
+            return {"success": False, "error": "image_search_timeout"}
+        except Exception:
+            self.ctx.logger.warning("公开配图素材检索失败")
+            return {"success": False, "error": "image_search_failed"}
 
     # ---------------------------------------------------------------- #
     # Action: image_search
