@@ -100,6 +100,14 @@
           }
         },
         {
+          "type": "text",
+          "label": "私聊分享任务",
+          "value": {
+            "source": "status",
+            "field": "manual_share.state"
+          }
+        },
+        {
           "type": "button",
           "label": "预览一篇阅读",
           "action": "preview"

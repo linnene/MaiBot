@@ -22,6 +22,11 @@
       "type": "python_package",
       "name": "aiohttp",
       "version_spec": ">=3.9,<4"
+    },
+    {
+      "type": "python_package",
+      "name": "Pillow",
+      "version_spec": ">=10"
     }
   ],
   "plugin_type": "extension",

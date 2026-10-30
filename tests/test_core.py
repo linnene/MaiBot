@@ -178,3 +178,8 @@ class PatrolTests(StoreFixture):
         with patch('core.time.time',return_value=11800):
             results=await asyncio.gather(self.store.claim_patrol(1800),restarted.claim_patrol(1800))
             self.assertEqual(sum(int(x[0]) for x in results),1)
+
+class SourceImageNormalizationTests(unittest.TestCase):
+    def test_cdn_http_cover_is_upgraded_but_unrelated_http_is_rejected(self):
+        item=normalize_feed({'id':'synthetic123','cover':{'urlDefault':'http://sns-webpic-qc.xhscdn.com/a'},'imageList':[{'url':'http://private.test/a'}]})
+        self.assertEqual(item['images'],['https://sns-webpic-qc.xhscdn.com/a'])

@@ -186,3 +186,31 @@ class PluginTests(unittest.IsolatedAsyncioTestCase):
         self.p._ctx.llm.generate=bad_channel
         verdict=await self.p.judge(self.item)
         self.assertEqual(verdict['share_channel'],'none')
+
+    async def test_required_original_image_gates_queue_and_attaches_only_matching_source(self):
+        self.p.config.plugin.enabled=True
+        self.p.config.reading.preview=False
+        self.p.config.sharing.auto_share=True
+        self.p.config.sharing.allowed_private_sessions=['real-session']
+        self.p.config.sharing.require_image=True
+        self.p._load_source_image=AsyncMock(return_value='')
+        result=await self.p.prepare_share('private','real-session',True)
+        self.assertEqual(result['reason'],'source_image_unavailable')
+        self.assertEqual(self.triggered,[])
+        self.p._load_source_image=AsyncMock(return_value='validated-image-base64')
+        result=await self.p.prepare_share('private','real-session',True)
+        await self.p.track_request(session_id='real-session',reply_message_id='image-anchor',reply_tool_args={'_host_proactive_task':{'task_id':result['task_id']}})
+        raw={'session_id':'real-session','processed_plain_text':self.item['url'],'raw_message':[{'type':'text','data':self.item['url']}],'message_info':{}}
+        tagged=await self.p.tag_send(message=raw,reply_message_id='image-anchor')
+        image=tagged['modified_kwargs']['message']['raw_message'][-1]
+        self.assertEqual(image['type'],'image')
+        self.assertEqual(image['binary_data_base64'],'validated-image-base64')
+        other=dict(raw,processed_plain_text='unrelated')
+        self.assertNotIn('modified_kwargs',await self.p.tag_send(message=other,reply_message_id='image-anchor'))
+
+    async def test_judge_receives_original_pixels_when_available(self):
+        self.p._load_source_image=AsyncMock(return_value='synthetic-image')
+        await self.p.judge(dict(self.item,images=['https://sns-webpic-qc.xhscdn.com/picture']))
+        content=self.prompts[0]['prompt'][-1]['content']
+        self.assertEqual(content[0]['type'],'text')
+        self.assertEqual(content[1]['image_url']['url'],'data:image/jpeg;base64,synthetic-image')

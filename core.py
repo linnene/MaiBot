@@ -54,10 +54,18 @@ def normalize_feed(raw: dict) -> dict:
         raise ValueError('Invalid feed identifier')
     url = 'https://www.xiaohongshu.com/explore/' + feed_id
     images = []
-    for image in (card.get('imageList') or card.get('image_list') or [])[:6]:
+    candidates = list(card.get('imageList') or card.get('image_list') or [])[:6]
+    if isinstance(card.get('cover'),dict):
+        candidates.append(card['cover'])
+    for image in candidates:
         if not isinstance(image, dict):
             continue
-        image_url = clean_url(image.get('urlDefault') or image.get('url_default') or image.get('url'))
+        raw_url = image.get('urlDefault') or image.get('url_default') or image.get('url') or image.get('urlPre')
+        if not raw_url:
+            raw_url = next((v.get('url') for v in image.get('infoList',[]) if isinstance(v,dict) and v.get('url')), '')
+        if isinstance(raw_url,str) and raw_url.startswith('http://') and (urlsplit(raw_url).hostname or '').endswith(('.xhscdn.com','.xiaohongshu.com')):
+            raw_url = 'https://' + raw_url[len('http://'):]
+        image_url = clean_url(raw_url)
         # Source-linked CDN images only; do not permit arbitrary remote attachments.
         if image_url and urlsplit(image_url).hostname.endswith(('.xhscdn.com', '.xiaohongshu.com')) and image_url not in images:
             images.append(image_url)
@@ -222,7 +230,7 @@ class Reader:
         self.store, self.client, self.judge = store, client, judge
         self.gate = asyncio.Lock()
 
-    async def browse(self, enabled, activity, allowed_activities, interests, daily_budget, max_items):
+    async def browse(self, enabled, activity, allowed_activities, interests, daily_budget, max_items, prefer_search=False):
         if not enabled:
             return {'success':False, 'reason':'disabled'}
         if not activity or activity not in allowed_activities:
@@ -233,7 +241,7 @@ class Reader:
             if not await self.store.take_budget(max(0,min(24,int(daily_budget)))):
                 return {'success':False, 'reason':'budget'}
             try:
-                result = await asyncio.wait_for(self._read(interests, max_items), timeout=240.)
+                result = await asyncio.wait_for(self._read(interests, max_items, prefer_search), timeout=240.)
                 await self.store.decision('browsed')
                 return result
             except asyncio.CancelledError:
@@ -243,7 +251,7 @@ class Reader:
                 await self.store.decision('browse_failed')
                 return {'success':False, 'reason':'browse_failed'}
 
-    async def _read(self, interests, max_items):
+    async def _read(self, interests, max_items, prefer_search=False):
         login = await self.client.call('check_login_status')
         logged_in = login.get('is_logged_in') is True if isinstance(login, dict) else False
         # Official sidecar currently emits plain Chinese login status text.
@@ -256,8 +264,8 @@ class Reader:
         if not interests:
             return {'success':False, 'reason':'no_interests'}
         # Interest-only query; no session/user/chat content enters search.
-        keyword = interests[int(time.time() // 3600) % len(interests)]
-        result = await self.client.call('list_feeds')
+        keyword = interests[0] if prefer_search else interests[int(time.time() // 3600) % len(interests)]
+        result = await self.client.call('search_feeds', {'keyword':keyword}) if prefer_search else await self.client.call('list_feeds')
         feeds = result.get('feeds', []) if isinstance(result, dict) else []
         if not isinstance(feeds,list) or not feeds:
             result = await self.client.call('search_feeds', {'keyword':keyword})
@@ -265,6 +273,7 @@ class Reader:
         if not isinstance(feeds,list):
             raise ValueError('Unexpected feed list schema')
         remembered = 0
+        processed = 0
         share_candidates = []
         for raw in feeds[:max(1,min(3,int(max_items)))]:
             if not isinstance(raw, dict):
@@ -283,12 +292,13 @@ class Reader:
                     continue
                 note = dict(note, id=note_id)
                 material = normalize_feed(note)
-                verdict = await asyncio.wait_for(self.judge(material), timeout=15.)
+                verdict = await asyncio.wait_for(self.judge(material), timeout=60.)
                 remember = isinstance(verdict,dict) and verdict.get('remember') is True
                 impression = verdict.get('impression','') if isinstance(verdict,dict) else ''
                 if not text(impression,500):
                     remember = False
                 await self.store.save(material, impression, remember)
+                processed += 1
                 remembered += int(remember)
                 share_channel = verdict.get('share_channel','none') if isinstance(verdict,dict) else 'none'
                 if remember and share_channel in CHANNELS:
@@ -297,4 +307,4 @@ class Reader:
                 raise
             except Exception:
                 await self.store.decision('item_ignored')
-        return {'success':True, 'remembered':remembered, 'share_candidates':share_candidates}
+        return {'success':True, 'processed':processed, 'remembered':remembered, 'share_candidates':share_candidates}
