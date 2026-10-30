@@ -736,6 +736,7 @@ async def handle_tool(
                     typing=index > 0,
                     sync_to_maisaka_history=True,
                     maisaka_source_kind="guided_reply",
+                    proactive_task_id=str(proactive_task.get("task_id") or "") if proactive_task else "",
                 )
                 sent = sent_message is not None
                 if not sent:

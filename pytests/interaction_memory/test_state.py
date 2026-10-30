@@ -212,3 +212,44 @@ def test_expanded_life_allowance_is_still_a_cap_not_a_send_requirement(store):
         store.observe('session','ack-'+str(index),'嗯嗯',now+1)
     result=store.decide('session',{'kind':'life','topic':'第三个生活话题','daily_cap':8},cfg,NOW+200*60,reserve=False)
     assert result['reason']=='life_share_limit'
+
+def test_personal_intent_uses_existing_delivery_budget(store):
+    cfg = InteractionMemoryConfig()
+    candidate = {"kind": "personal_intent", "topic": "想聊摄影", "daily_cap": 8}
+    first = store.decide("session", candidate, cfg, NOW, reserve=True)
+    assert first["eligible"]
+    assert store.decide("session", candidate, cfg, NOW, reserve=True)["reason"] == "pending_delivery"
+    store.bind_task(first["id"], "reminder-task")
+    store.delivered("session", "reminder-task", NOW)
+    assert store.decide("session", candidate, cfg, NOW + 60, reserve=True)["reason"] == "adaptive_cooldown"
+
+
+def test_recent_afterthought_is_bounded_and_does_not_ignore_pause(store):
+    cfg = InteractionMemoryConfig()
+    candidate = {
+        "kind": "personal_intent",
+        "intent_kind": "afterthought",
+        "intent_created_at": NOW - 180,
+        "topic": "刚想起来一件事",
+    }
+    store.observe("session", "new", "刚回来了", NOW - 180)
+    store.run(lambda db: db.execute("UPDATE conversations SET last_bot_at=?", (NOW - 150,)))
+    assert store.decide("session", candidate, cfg, NOW, reserve=False)["eligible"]
+    assert store.decide("session", candidate, cfg, NOW - 100, reserve=False)["reason"] == "recent_conversation"
+    store.observe("session", "close", "先不聊了", NOW - 140)
+    assert store.decide("session", candidate, cfg, NOW, reserve=False)["reason"] == "user_closed"
+
+
+def test_afterthought_cannot_bypass_unanswered_or_old_intent(store):
+    cfg = InteractionMemoryConfig()
+    candidate = {
+        "kind": "personal_intent",
+        "intent_kind": "afterthought",
+        "intent_created_at": NOW - 180,
+        "topic": "补一句",
+    }
+    store.run(lambda db: db.execute("UPDATE conversations SET unanswered=1,last_bot_at=?", (NOW - 150,)))
+    assert store.decide("session", candidate, cfg, NOW, reserve=False)["reason"] == "adaptive_cooldown"
+    store.run(lambda db: db.execute("UPDATE conversations SET unanswered=0,last_user_at=?", (NOW - 180,)))
+    candidate["intent_created_at"] = NOW - 3600
+    assert store.decide("session", candidate, cfg, NOW, reserve=False)["reason"] == "recent_conversation"

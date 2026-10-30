@@ -1124,6 +1124,7 @@ async def _send_to_target_with_message(
     selected_expressions: Optional[List[int]] = None,
     sync_to_maisaka_history: bool = False,
     maisaka_source_kind: str = "outbound_send",
+    proactive_task_id: str = "",
 ) -> Optional[SessionMessage]:
     """向指定目标构建并发送消息。
 
@@ -1158,6 +1159,10 @@ async def _send_to_target_with_message(
         )
         if outbound_message is None:
             return None
+
+        # Host provenance survives quoting and splitting. It is never model text.
+        if proactive_task_id:
+            outbound_message.message_info.additional_config["_host_proactive_task_id"] = proactive_task_id
 
         after_build_result, outbound_message = await _invoke_send_hook(
             "send_service.after_build_message",

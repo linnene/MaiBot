@@ -124,6 +124,22 @@
         "SDK data directory",
         "reading SQLite database"
       ]
+    },
+    {
+      "id": "local.self-reminders",
+      "folder": "local_self-reminders",
+      "version": "0.1.0",
+      "source": {
+        "repository": "https://github.com/linnene/MaiBot.git",
+        "ref": "feat/proactive-intents-reminders",
+        "commit": "f9898be3dc18847720b870153202c1dcdf888dc7"
+      },
+      "upstream": "https://github.com/linnene/MaiBot",
+      "private_runtime_assets": [
+        "config.toml",
+        "SDK data directory",
+        "assistant-owned reminders SQLite database"
+      ]
     }
   ]
 }

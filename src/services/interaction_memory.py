@@ -163,12 +163,22 @@ class InteractionStore:
             target=cfg.daily_target_min+int(hashlib.sha256(f'{session_id}:{local.date()}'.encode()).hexdigest()[:8],16)%(cfg.daily_target_max-cfg.daily_target_min+1)
             decision={'id':uuid.uuid4().hex,'session_id':session_id,'kind':'none','topic':'','item_id':'','eligible':False,'reason':'','daily_target':target,'silence_seconds':max(0,int(now-state.get('last_user_at',now)))}
             reason=''
+            # A recent, self-authored afterthought is a continuation, not a new
+            # daily ping. Keep a two-minute silence floor and all pause, quota,
+            # duplicate and unanswered gates. Old notes use normal cooldowns.
+            created=candidate.get('intent_created_at',0)
+            recent_afterthought=(candidate.get('kind')=='personal_intent'
+                and candidate.get('intent_kind')=='afterthought'
+                and isinstance(created,(int,float)) and 0<=now-created<=1200
+                and state.get('unanswered',0)==0)
+            after_user=120 if recent_afterthought else cfg.after_user_minutes*60
+            interval=120 if recent_afterthought else cfg.min_interval_minutes*60
             if not state:reason='no_user_context'
             elif c.execute("SELECT 1 FROM decisions WHERE session_id=? AND status='queued' AND lease_until>? LIMIT 1",(session_id,now)).fetchone():reason='pending_delivery'
             elif state['busy_until']>now:reason='user_'+state['state']
             elif state['unanswered']>=cfg.max_unanswered:reason='unanswered_backoff'
-            elif now-state['last_user_at']<cfg.after_user_minutes*60:reason='recent_conversation'
-            elif now-max(state['last_proactive_at'],state['last_bot_at'])<cfg.min_interval_minutes*60*(1+state['unanswered']):reason='adaptive_cooldown'
+            elif now-state['last_user_at']<after_user:reason='recent_conversation'
+            elif now-max(state['last_proactive_at'],state['last_bot_at'])<interval*(1+state['unanswered']):reason='adaptive_cooldown'
             elif len(sent)>=min(cfg.daily_hard_max,int(candidate.get('daily_cap',cfg.daily_hard_max))):reason='daily_hard_limit'
             if not reason:
                 due=c.execute("SELECT * FROM followups WHERE session_id=? AND status='open' AND due_at>0 AND due_at<=? AND expires_at>? ORDER BY due_at LIMIT 1",(session_id,now,now)).fetchone()
@@ -179,7 +189,7 @@ class InteractionStore:
                     decision.update(kind=kind,topic=str(candidate.get('topic',''))[:240])
                     if len(sent)>=target and kind!='occasion':reason='daily_soft_target'
                     elif kind=='life' and sum(s['kind']=='life' for s in sent)>=cfg.life_daily_max:reason='life_share_limit'
-                    elif kind not in {'life','external','morning','night','shared_interest','occasion'}:reason='unsupported_candidate'
+                    elif kind not in {'life','external','morning','night','shared_interest','occasion','personal_intent'}:reason='unsupported_candidate'
                     elif not decision['topic']:reason='empty_candidate'
                 topic_key=decision.get('item_id') or hashlib.sha256(re.sub(r'\s+','',decision['topic']).encode()).hexdigest()[:24]
                 if not reason and c.execute("SELECT 1 FROM decisions WHERE session_id=? AND topic_key=? AND (status='sent' OR (status='queued' AND lease_until>?)) AND created_at>?",(session_id,topic_key,now,now-cfg.topic_cooldown_hours*3600)).fetchone():reason='topic_cooldown'
@@ -350,6 +360,8 @@ class InteractionMemoryService:
         if not self.enabled_for(session):return {'accepted':not delegated,'reason':reason,'decision_id':''}
         raw=json.loads(reason)
         candidate={'topic':raw.get('topic',''),'kind':raw.get('candidate_kind','life'),'daily_cap':raw.get('daily_cap',self.config.daily_hard_max)}
+        if candidate['kind']=='personal_intent':
+            candidate.update(intent_kind=raw.get('intent_kind',''),intent_created_at=raw.get('intent_created_at',0))
         related=[]
         snapshot=await asyncio.to_thread(self.store.snapshot,session.session_id)
         state=snapshot['conversation'];now=time.time()
