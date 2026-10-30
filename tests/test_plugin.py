@@ -227,3 +227,22 @@ class PluginTests(unittest.IsolatedAsyncioTestCase):
         await self.p._share_task
         self.assertEqual((await self.p.status())['manual_share']['result']['reason'],'not_real_session')
         self.assertEqual(self.triggered,[])
+
+    async def test_own_share_gets_compact_brief_and_rejects_unrelated_or_link_only_output(self):
+        self.p.config.plugin.enabled=True
+        self.p.config.reading.preview=False
+        self.p.config.sharing.auto_share=True
+        self.p.config.sharing.allowed_private_sessions=['real-session']
+        queued=await self.p.prepare_share('private','real-session',True)
+        args={'session_id':'real-session','reply_message_id':'brief-anchor','reply_tool_args':{'_host_proactive_task':{'task_id':queued['task_id']}}}
+        brief=await self.p.share_brief(**args,extra_prompt='existing')
+        self.assertIn(self.item['url'],brief['modified_kwargs']['extra_prompt'])
+        self.assertIn('existing',brief['modified_kwargs']['extra_prompt'])
+        for response in ['不晓得',self.item['url']]:
+            blocked=await self.p.guard_share(**args,response=response)
+            self.assertEqual(blocked['modified_kwargs']['response'],'')
+            self.assertTrue(blocked['modified_kwargs']['retry'])
+        good='喜欢这片光 '+self.item['url']
+        self.assertNotIn('modified_kwargs',await self.p.guard_share(**args,response=good))
+        passive=dict(args,reply_tool_args={},reply_message_id='passive-anchor')
+        self.assertNotIn('modified_kwargs',await self.p.share_brief(**passive))
