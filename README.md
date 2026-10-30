@@ -6,7 +6,7 @@
 
 ## 配置与使用
 
-默认关闭。设置 `enabled=true`、`owner_session` 为已存在、绑定了独占可信关系的 QQ 私聊会话。没有匹配身份或会话就拒绝操作和联系；群聊不能管理或接收这些提醒。不要把 QQ 号直接填入会话 ID。
+配置保留宿主必需的 `[plugin]`（`enabled=true`、`config_version="1.0.0"`）。提醒能力默认关闭；根级设置 `enabled=true`、`owner_session` 为已存在、绑定了独占可信关系的 QQ 私聊会话。没有匹配身份或会话就拒绝操作和联系；群聊不能管理或接收这些提醒。不要把 QQ 号直接填入会话 ID。
 
 模型工具支持 `list/create/update/complete/cancel/delete`。新建传 `title`、`kind`、带时区的 `due_at`，可选 `basis`、`cancel_on_reply`；更改或删除用返回的 `id`。`kind` 为 `chat/afterthought/wait_for_user/self_task`，`afterthought` 默认在用户中途发话时取消。重建相近同名提醒会合并；更复杂的语义合并由角色先查看后更新已有条目。
 

@@ -13,7 +13,13 @@ from maibot_sdk.types import HookMode, ToolParameterInfo, ToolParamType
 from .core import ReminderStore, parse_due
 
 
+class PluginSection(PluginConfigBase):
+    enabled: bool = Field(default=True, description="宿主插件开关")
+    config_version: str = Field(default="1.0.0", description="配置版本")
+
+
 class RemindersConfig(PluginConfigBase):
+    plugin: PluginSection = Field(default_factory=PluginSection)
     enabled: bool = Field(default=False, description="启用角色自己的提醒；默认关闭")
     owner_session: str = Field(
         default="", description="现有且已通过可信关系认证的唯一私聊会话，非QQ号"

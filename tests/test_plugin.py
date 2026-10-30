@@ -355,3 +355,9 @@ class PluginTests(unittest.IsolatedAsyncioTestCase):
         await self.p.tick()
         self.assertEqual(self.trigger.await_count, 1)
         self.assertEqual(self.p.store.list("owner")[0]["state"], "uncertain")
+
+    async def test_configuration_declares_host_required_version_section(self):
+        value = RemindersConfig().model_dump()
+        self.assertEqual(value["plugin"]["config_version"], "1.0.0")
+        self.assertTrue(value["plugin"]["enabled"])
+        self.assertFalse(value["enabled"])
