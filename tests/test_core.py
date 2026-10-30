@@ -144,3 +144,21 @@ class AuthTests(unittest.IsolatedAsyncioTestCase):
         await client.call('check_login_status')
         self.assertTrue(all(headers['Authorization']=='Bearer test-secret' for _,headers in seen))
         self.assertNotIn('test-secret',json.dumps([payload for payload,_ in seen]))
+
+class BrowserDeadlineTests(unittest.IsolatedAsyncioTestCase):
+    async def test_browser_operation_can_finish_after_twenty_five_seconds(self):
+        # Accelerate only the outer deadline: 27ms stands for a 27s browser startup.
+        from unittest.mock import patch
+        wait_for = asyncio.wait_for
+        async def fast_deadline(awaitable, timeout):
+            return await wait_for(awaitable, timeout=timeout / 1000)
+        async def exchange(payload, headers):
+            if payload['method'].startswith('notifications/'):
+                return {}, b'', 'application/json'
+            if payload['method'] == 'tools/call':
+                await asyncio.sleep(.027)
+            result = {'content':[{'type':'text','text':'{"is_logged_in":true}'}]} if payload['method']=='tools/call' else {}
+            return {}, json.dumps({'id':payload['id'],'result':result}).encode(), 'application/json'
+        client = MCPClient(timeout=35, exchange=exchange)
+        with patch('mcp_client.asyncio.wait_for', fast_deadline):
+            self.assertTrue((await client.call('check_login_status'))['is_logged_in'])

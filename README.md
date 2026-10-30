@@ -33,3 +33,5 @@
 在有 SDK 2.12 的 Python 3.12 环境运行 `python -m unittest discover -s tests`。测试用假 HTTP、SDK context、模型与渠道回执，无实网、真实账号、登录或模型调用。测试证明传输/预算/去重/边界机制；未证明账号可用、平台稳定、自然感或实际 Host 发送链路。发布前需要部署者另外验证本机 sidecar 与真实 Host 契约。
 
 `reading.token` 只用于本机 sidecar Bearer 鉴权。`reading.budget_timezone` 默认 Asia/Shanghai。生活接口使用新增 get_public_life_state 的 activity_kind/can_browse，原始活动描述不参与判断。聊天平台回执必须由本功能分支宿主 Hook 显式提供 platform_message_id，内部 message_id 不计为分享成功。
+
+Browser operations have a 35-second per-call deadline (explicit overrides capped at 60s) and a 240-second whole-reading deadline. This accommodates measured 18–20s headless startup on the small server; timeouts still consume the daily session budget and never trigger automatic sends or unbounded retries.

@@ -33,7 +33,7 @@ def decode_rpc(body: bytes, content_type: str, request_id: int) -> dict:
 
 
 class MCPClient:
-    def __init__(self, url='http://127.0.0.1:18060/mcp', timeout=12., exchange=None, token=''):
+    def __init__(self, url='http://127.0.0.1:18060/mcp', timeout=35., exchange=None, token=''):
         parsed = urlsplit(url)
         if parsed.scheme != 'http' or parsed.hostname not in {'127.0.0.1', '::1', 'localhost'} or parsed.username or parsed.password or parsed.query or parsed.fragment:
             raise ValueError('MCP must use a literal loopback HTTP endpoint without credentials')
@@ -41,7 +41,7 @@ class MCPClient:
             raise ValueError('Invalid sidecar bearer token')
         self.token = token
         self.url = url
-        self.timeout = max(.001, min(25., float(timeout)))
+        self.timeout = max(.001, min(60., float(timeout)))
         self.exchange = exchange or self._http
         self.session_id = ''
         self.sequence = 0

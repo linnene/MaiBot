@@ -214,7 +214,7 @@ class Reader:
             if not await self.store.take_budget(max(0,min(24,int(daily_budget)))):
                 return {'success':False, 'reason':'budget'}
             try:
-                result = await asyncio.wait_for(self._read(interests, max_items), timeout=50.)
+                result = await asyncio.wait_for(self._read(interests, max_items), timeout=240.)
                 await self.store.decision('browsed')
                 return result
             except asyncio.CancelledError:
