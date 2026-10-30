@@ -214,3 +214,16 @@ class PluginTests(unittest.IsolatedAsyncioTestCase):
         content=self.prompts[0]['prompt'][-1]['content']
         self.assertEqual(content[0]['type'],'text')
         self.assertEqual(content[1]['image_url']['url'],'data:image/jpeg;base64,synthetic-image')
+
+    async def test_group_admin_action_requires_unique_enabled_real_group(self):
+        self.p.config.plugin.enabled=True
+        self.assertFalse((await self.p.queue_group(self.item['id']))['success'])
+        self.p.config.reading.preview=False
+        self.p.config.sharing.auto_share=True
+        self.p.config.sharing.channels=['private','group']
+        self.p.config.sharing.allowed_group_sessions=['fake-session']
+        result=await self.p.queue_group(self.item['id'])
+        self.assertTrue(result['accepted'])
+        await self.p._share_task
+        self.assertEqual((await self.p.status())['manual_share']['result']['reason'],'not_real_session')
+        self.assertEqual(self.triggered,[])

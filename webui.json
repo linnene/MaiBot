@@ -36,6 +36,23 @@
               "field": "id"
             }
           }
+        },
+        "group_share": {
+          "api": "queue_group",
+          "confirmation": "将选中公开阅读交给唯一配置的测试群？不包含私聊内容。",
+          "parameters": {
+            "material_id": {
+              "type": "string",
+              "required": true
+            }
+          },
+          "arguments": {
+            "material_id": {
+              "scope": "selection",
+              "source": "note",
+              "field": "id"
+            }
+          }
         }
       },
       "auto_refresh": true,
@@ -173,6 +190,19 @@
               "label": "原因"
             }
           ]
+        },
+        {
+          "type": "button",
+          "label": "交给已配置测试群",
+          "action": "group_share",
+          "disabled_when": {
+            "reference": {
+              "scope": "selection",
+              "source": "note"
+            },
+            "operator": "empty"
+          },
+          "disabled_reason": "先选择一条已记住的阅读"
         }
       ]
     }
