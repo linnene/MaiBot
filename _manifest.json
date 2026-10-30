@@ -1,0 +1,33 @@
+{
+  "manifest_version": 2,
+  "id": "local.self-reminders",
+  "name": "自己的提醒与主动联系意图",
+  "version": "0.1.0",
+  "description": "角色自行维护私人待办，到时先考虑；只读观测，联系仍由宿主策略与原有对话流程决定。",
+  "author": {
+    "name": "Local development",
+    "url": "https://github.com/linnene"
+  },
+  "license": "MIT",
+  "host_application": {
+    "min_version": "1.3.6",
+    "max_version": "1.99.99"
+  },
+  "sdk": {
+    "min_version": "2.12.0",
+    "max_version": "2.99.99"
+  },
+  "plugin_type": "extension",
+  "capabilities": [
+    "config.get",
+    "chat.get_private_streams",
+    "llm.generate",
+    "maisaka.proactive.trigger"
+  ],
+  "i18n": {
+    "default_locale": "zh-CN"
+  },
+  "urls": {
+    "repository": "https://github.com/linnene/MaiBot"
+  }
+}

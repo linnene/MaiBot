@@ -1,0 +1,67 @@
+{
+  "schema_version": 2,
+  "workspace_title": "她自己的提醒",
+  "pages": [
+    {
+      "id": "reminders",
+      "title": "她自己的提醒",
+      "placement": "workspace",
+      "icon": "list",
+      "queries": {
+        "status": {
+          "api": "status"
+        }
+      },
+      "auto_refresh": true,
+      "poll_interval_seconds": 15,
+      "content": [
+        {
+          "type": "text",
+          "value": "这是她自己维护的念头与待办，不是用户事实或承诺。页面仅供查看；到期先唤起考虑，排队不等于发送成功。"
+        },
+        {
+          "type": "text",
+          "label": "最近结果",
+          "value": {
+            "source": "status",
+            "field": "last_reason"
+          }
+        },
+        {
+          "type": "table",
+          "label": "私人提醒",
+          "value": {
+            "source": "status",
+            "field": "items"
+          },
+          "columns": [
+            {
+              "field": "title",
+              "label": "念头或待办"
+            },
+            {
+              "field": "kind",
+              "label": "用途"
+            },
+            {
+              "field": "due_at",
+              "label": "下次考虑"
+            },
+            {
+              "field": "state",
+              "label": "状态"
+            },
+            {
+              "field": "outcome",
+              "label": "最近结果"
+            },
+            {
+              "field": "basis",
+              "label": "起因"
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}
