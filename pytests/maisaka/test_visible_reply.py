@@ -10,12 +10,18 @@ from src.chat.replyer.visible_reply import unwrap_self_history
     [
         ('<self_message time="2030-01-02T12:34:56">\n好呀\n</self_message>', "好呀"),
         ('<self_message time="2030-01-02T12:34:56">好呀</self_message>', "好呀"),
+        ('<self_message time=“2030-01-02T12:34:56”>午安哥哥</self_message>', "午安哥哥"),
+        ("<self_message time='2030-01-02T12:34:56'>好呀</self_message>", "好呀"),
+        ('<self_message time=‘2030-01-02T12:34:56’>好呀</self_message>', "好呀"),
+        ('<self_message  time = “2030-01-02T12:34:56” >\n好呀\n</self_message>', "好呀"),
         (
             '<self_message time="2030-01-02T12:34:56">\n先看书\n</self_message>\n<self_message time="2030-01-02T12:34:56">\n晚点聊',
             "先看书\n晚点聊",
         ),
         ('<self_message time="2030-01-02T12:34:56">\n好呀', "好呀"),
         ('<self_message time="2030-01-02T12:34:56">\n</self_message>', ""),
+        ('好呀\n</self_message>', "好呀"),
+        ('</self_message>', ""),
     ],
 )
 def test_only_internal_envelopes_removed(text, expected):
@@ -32,6 +38,9 @@ def test_only_internal_envelopes_removed(text, expected):
         '```xml\n<self_message time="2030-01-02T12:34:56">\n示例\n</self_message>\n```',
         '<message time="2030-01-02T12:34:56">例子</message>',
         '<self_message time="not-a-date">例子</self_message>',
+        '<self_message time=“not-a-date”>例子</self_message>',
+        '讨论 <self_message time=“2030-01-02T12:34:56”> 标签',
+        '```xml\n<self_message time=“2030-01-02T12:34:56”>\n示例\n</self_message>\n```',
         "  正常对话的空格不应被改动  ",
     ],
 )
@@ -40,7 +49,8 @@ def test_normal_times_code_and_other_xml_unchanged(text):
 
 
 @pytest.mark.asyncio
-async def test_generator_keeps_canonical_projection_equal_to_visible_reply(monkeypatch):
+@pytest.mark.parametrize("quotes", [("\"", "\""), ("“", "”")])
+async def test_generator_keeps_canonical_projection_equal_to_visible_reply(monkeypatch, quotes):
     from types import SimpleNamespace
     from unittest.mock import AsyncMock
 
@@ -49,6 +59,7 @@ async def test_generator_keeps_canonical_projection_equal_to_visible_reply(monke
     from src.llm_models.payload_content.context_item import ContextItemBuilder, RoleType, get_response_text
 
     raw = '<self_message time="2030-01-02T12:34:56">\n好呀\n</self_message>'
+    raw = raw.replace('"2030', quotes[0] + '2030').replace('56"', '56' + quotes[1])
     response = LLMResponseResult.from_portable_output(response=raw, model_name="synthetic")
     generator = object.__new__(BaseMaisakaReplyGenerator)
     generator.request_type = "maisaka.replyer"

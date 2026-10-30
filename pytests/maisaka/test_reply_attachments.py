@@ -198,7 +198,8 @@ async def test_compiler_drops_stale_reference_and_preserves_action(reply_context
 
 
 @pytest.mark.asyncio
-async def test_leaked_metadata_is_removed_after_post_process_hook_before_splitting(reply_context, monkeypatch):
+@pytest.mark.parametrize("quotes", [("\"", "\""), ("“", "”")])
+async def test_leaked_metadata_is_removed_after_post_process_hook_before_splitting(reply_context, monkeypatch, quotes):
     monkeypatch.setattr(global_config.experimental, "persona_context_compiler", False)
     monkeypatch.setattr(global_config.experimental, "persona_harness_v2", False)
     generator = SimpleNamespace(generate_reply_with_context=AsyncMock(return_value=(
@@ -206,7 +207,7 @@ async def test_leaked_metadata_is_removed_after_post_process_hook_before_splitti
     )))
     monkeypatch.setattr(reply_tool.replyer_manager, "get_replyer", lambda **_: generator)
     monkeypatch.setattr(reply_tool, "_invoke_before_post_process_hook", AsyncMock(return_value=(
-        '<self_message time="2030-01-02T12:34:56">\n好呀\n</self_message>', {"skip_post_process": True},
+        f'<self_message time={quotes[0]}2030-01-02T12:34:56{quotes[1]}>\n好呀\n</self_message>', {"skip_post_process": True},
     )))
     process = AsyncMock(side_effect=ValueError("test ends before sending"))
     monkeypatch.setattr(reply_context, "post_process_reply_message_items_async", process)
