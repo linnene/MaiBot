@@ -8,8 +8,8 @@
       "version": "1.24.0",
       "source": {
         "repository": "https://github.com/linnene/MaiBot.git",
-        "ref": "deploy/plugins/mai-life",
-        "commit": "f63d046f5132c4974b8164f9a2444f55871ba10d"
+        "ref": "feat/entertainment-life",
+        "commit": "50deebdfe942590fca847fc74f4225b4915d858c"
       },
       "upstream": "https://github.com/octmicy/Mai_life",
       "private_runtime_assets": [
@@ -68,8 +68,8 @@
       "version": "3.0.3",
       "source": {
         "repository": "https://github.com/linnene/MaiBot.git",
-        "ref": "deploy/plugins/maizone",
-        "commit": "29431f42d3a95b8fa67898ee36a6023cfea8e5a3"
+        "ref": "feat/entertainment-maizone",
+        "commit": "66d1af43619df5695e8b246bfcdd04f33ad5d340"
       },
       "upstream": "https://github.com/internetsb/Maizone",
       "private_runtime_assets": [
@@ -100,13 +100,29 @@
       "version": "4.1.0",
       "source": {
         "repository": "https://github.com/linnene/MaiBot.git",
-        "ref": "deploy/plugins/google-search",
-        "commit": "76e697d609671afbd67609e1aa49145950522706"
+        "ref": "feat/entertainment-search",
+        "commit": "cb326ad58907af743473c0568fe1e8fbae786567"
       },
       "upstream": "https://github.com/XXXxx7258/google_search_plugin",
       "private_runtime_assets": [
         "config.toml",
         "SDK data directory"
+      ]
+    },
+    {
+      "id": "local.entertainment",
+      "folder": "local_entertainment",
+      "version": "0.1.0",
+      "source": {
+        "repository": "https://github.com/linnene/MaiBot.git",
+        "ref": "feat/entertainment-reader",
+        "commit": "2d881c14941a88a8651ab0cfa1dc8e0d07d7d87a"
+      },
+      "upstream": "https://github.com/linnene/MaiBot",
+      "private_runtime_assets": [
+        "config.toml",
+        "SDK data directory",
+        "reading SQLite database"
       ]
     }
   ]

@@ -26,7 +26,11 @@ def serialize_session_message(message: SessionMessage) -> Dict[str, Any]:
         Dict[str, Any]: 可通过插件运行时传输的消息字典。
     """
 
-    return dict(PluginMessageUtils._session_message_to_dict(message))
+    payload = dict(PluginMessageUtils._session_message_to_dict(message))
+    # Host-derived delivery evidence, distinct from the pre-send internal ID.
+    # Deserialization deliberately ignores this field: plugins cannot mint receipts.
+    payload["platform_message_id"] = message.platform_message_id
+    return payload
 
 
 def deserialize_session_message(raw_message: Any) -> SessionMessage:

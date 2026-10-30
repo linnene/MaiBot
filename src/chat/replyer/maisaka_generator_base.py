@@ -66,7 +66,7 @@ from src.maisaka.visual.message_limiter import limit_latest_images_in_messages
 from src.maisaka.visual.mode_utils import resolve_enable_visual_planner
 from src.plugin_runtime.hook_payloads import deserialize_prompt_items, serialize_prompt_items
 
-from .handoff import render_boundary, render_handoff
+from .handoff import render_boundary, render_handoff, resolve_handoff_evidence
 from .maisaka_expression_selector import maisaka_expression_selector
 from .retro_prompt import RetroReplyPromptMixin
 from .visible_reply import unwrap_self_history
@@ -750,6 +750,7 @@ class BaseMaisakaReplyGenerator(RetroReplyPromptMixin):
         enable_visual_message: bool = False,
         reply_tool_args: Optional[Dict[str, Any]] = None,
         think_level: int = 1,
+        host_evidence: Optional[List[Dict[str, str]]] = None,
     ) -> List[ContextItem]:
         interaction_context = str((reply_tool_args or {}).get("_interaction_context") or "")
         if interaction_context:
@@ -787,6 +788,7 @@ class BaseMaisakaReplyGenerator(RetroReplyPromptMixin):
                 think_level=think_level,
                 reply_tool_args=reply_tool_args,
                 enable_visual_message=enable_visual_message,
+                host_evidence=host_evidence,
             )
 
         items: List[ContextItem] = []
@@ -814,7 +816,7 @@ class BaseMaisakaReplyGenerator(RetroReplyPromptMixin):
         )
         if global_config.experimental.persona_harness_v2 and not global_config.experimental.persona_context_compiler:
             reply_reference_message = render_handoff(
-                reply_tool_args or {}, chat_history,
+                reply_tool_args or {}, chat_history, host_evidence=host_evidence,
                 target_message_id=reply_message.message_id if reply_message is not None else "",
             )
         requested_reply_style_message = self._build_requested_reply_style_message(
@@ -1235,6 +1237,7 @@ class BaseMaisakaReplyGenerator(RetroReplyPromptMixin):
 
             prompt_started_at = time.perf_counter()
             try:
+                # 工具只作为宿主裁剪后的事实来源交接，不重新混入真实聊天记录。
                 request_messages = self._build_request_messages(
                     chat_history=filtered_history,
                     reply_message=reply_message,
@@ -1244,6 +1247,11 @@ class BaseMaisakaReplyGenerator(RetroReplyPromptMixin):
                     stream_id=stream_id,
                     reply_tool_args=active_reply_tool_args,
                     think_level=think_level,
+                    host_evidence=(
+                        resolve_handoff_evidence(active_reply_tool_args, chat_history)
+                        if global_config.experimental.persona_harness_v2
+                        and not global_config.experimental.persona_context_compiler else None
+                    ),
                 )
             except Exception as exc:
                 import traceback
@@ -1285,6 +1293,7 @@ class BaseMaisakaReplyGenerator(RetroReplyPromptMixin):
                     filtered_history[:] = [
                         message for message in chat_history if self._should_keep_replyer_history_message(message)
                     ]
+                # 刷新或重建请求时仍从宿主原始上下文提取有限证据，不能从过滤后的聊天记录恢复。
                 # 视觉请求构建会解码、缩放和编码图片，在工作线程中执行，避免阻塞聊天事件循环。
                 built_request_messages = await asyncio.to_thread(
                     self._build_request_messages,
@@ -1297,6 +1306,11 @@ class BaseMaisakaReplyGenerator(RetroReplyPromptMixin):
                     enable_visual_message=enable_visual_message,
                     reply_tool_args=dict(reply_tool_args_for_attempt),
                     think_level=think_level,
+                    host_evidence=(
+                        resolve_handoff_evidence(dict(reply_tool_args_for_attempt), chat_history)
+                        if global_config.experimental.persona_harness_v2
+                        and not global_config.experimental.persona_context_compiler else None
+                    ),
                 )
                 if global_config.experimental.replyer_review:
                     built_request_messages.append(

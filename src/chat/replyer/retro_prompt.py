@@ -116,6 +116,7 @@ class RetroReplyPromptMixin:
         think_level: int = 1,
         reply_tool_args: Optional[Dict[str, Any]] = None,
         enable_visual_message: bool = False,
+        host_evidence: Optional[List[Dict[str, str]]] = None,
     ) -> List[ContextItem]:
         """构建首条人设与注意事项 system 消息，以及复古模板 user 消息。
 
@@ -174,7 +175,7 @@ class RetroReplyPromptMixin:
             from .handoff import render_boundary, render_handoff
 
             template_context["planner_reasoning"] = render_handoff(
-                reply_tool_args or {}, handoff_history,
+                reply_tool_args or {}, handoff_history, host_evidence=host_evidence,
                 target_message_id=reply_message.message_id if reply_message is not None else "",
             )
             system_prompt += "\n\n" + render_boundary(reply_tool_args or {})

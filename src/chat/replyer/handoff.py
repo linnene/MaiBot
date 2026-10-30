@@ -133,15 +133,22 @@ def current_turn_memory(arguments: Dict[str, Any], history: List[LLMContextMessa
     return evidence
 
 
-def render_handoff(
-    arguments: Dict[str, Any], history: List[LLMContextMessage], *, target_message_id: str | None = None,
-) -> str:
-    # Never accept Planner-written fact summaries as evidence. Unknown references
-    # fail before generation instead of silently fabricating provenance.
+def resolve_handoff_evidence(arguments: Dict[str, Any], history: List[LLMContextMessage]) -> List[Dict[str, str]]:
+    """Snapshot bounded host evidence before conversation-only history filtering."""
     evidence = current_turn_memory(arguments, history)
     automatic_ids = {source["id"] for source in evidence}
     evidence.extend(source for source in resolve_evidence(arguments.get("evidence_refs", []), history)
                     if source["id"] not in automatic_ids)
+    return evidence
+
+
+def render_handoff(
+    arguments: Dict[str, Any], history: List[LLMContextMessage], *, target_message_id: str | None = None,
+    host_evidence: List[Dict[str, str]] | None = None,
+) -> str:
+    # Never accept Planner-written fact summaries as evidence. Unknown references
+    # fail before generation instead of silently fabricating provenance.
+    evidence = resolve_handoff_evidence(arguments, history) if host_evidence is None else host_evidence
     return load_prompt(
         "maisaka_reply_handoff",
         intent=str(arguments.get("reply_reference", "")).strip()[:240],

@@ -1,0 +1,15 @@
+# Choose and record a verified immutable upstream image digest before starting.
+# Cookies and browser profile belong to the private instance, never this repository.
+services:
+  xiaohongshu:
+    image: ${XHS_MCP_IMAGE:?Set a verified image@sha256 digest}
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:18060:18060"
+    environment:
+      AUTH_TOKEN: ${XHS_AUTH_TOKEN:?Set a private authentication token}
+      COOKIES_PATH: /app/data/cookies.json
+      HOME: /app/data/home
+      XDG_CONFIG_HOME: /app/data/config
+    volumes:
+      - ${XHS_STATE_DIR:?Set an absolute private state directory}:/app/data
