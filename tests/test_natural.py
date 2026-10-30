@@ -233,3 +233,10 @@ def test_disabled_does_not_read_or_generate(tmp_path):
     assert asyncio.run(service.draft())["success"] is False
     assert calls == []
     service.plugin.ctx.llm.generate.assert_not_called()
+
+
+def test_material_can_be_ignored_for_independent_thought(tmp_path):
+    service, calls = setup(tmp_path, draft={"skip": False, "text": "想试试用水彩画一小盘水果。", "material_id": "", "image_query": ""})
+    result = asyncio.run(service.publish("", AsyncMock(return_value="fid")))
+    assert result["success"]
+    assert not any(name.endswith(("record_share", "reserve_material")) for name, _ in calls)
