@@ -71,3 +71,5 @@ Maizone 配置 send.natural_mode=true 才使用新路径；send.enable_image 控
 ## 回退
 
 本次不更改现有生产配置。部署后遇到问题，先关闭 reading.auto_browse、sharing.auto_share 与 send.natural_mode；需要代码回退时主程序与锁定插件一起回到部署前锚点。新阅读库、收据和记录保留备份；没有原长期记忆库迁移，不需要删除旧记忆或重建 embedding。
+
+实机部署验证补充：小型服务器上一次浏览器冷启动约18–20秒，因此每次 MCP 操作截止时间为35秒，整次阅读截止为240秒。仍限制日预算，不自动重试，不改变聊天回复等待时间。
