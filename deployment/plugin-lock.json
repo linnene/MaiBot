@@ -116,7 +116,7 @@
       "source": {
         "repository": "https://github.com/linnene/MaiBot.git",
         "ref": "feat/entertainment-reader",
-        "commit": "44d287427d8a757fb5324604573d5944e41681c5"
+        "commit": "100406eb20178bde4178c6e765570acf4f7e67c8"
       },
       "upstream": "https://github.com/linnene/MaiBot",
       "private_runtime_assets": [
