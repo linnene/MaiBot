@@ -162,3 +162,19 @@ class BrowserDeadlineTests(unittest.IsolatedAsyncioTestCase):
         client = MCPClient(timeout=35, exchange=exchange)
         with patch('mcp_client.asyncio.wait_for', fast_deadline):
             self.assertTrue((await client.call('check_login_status'))['is_logged_in'])
+
+class PatrolTests(StoreFixture):
+    async def test_due_time_survives_new_store_and_only_one_worker_claims(self):
+        from unittest.mock import patch
+        with patch('core.time.time',return_value=10000):
+            due, wait = await self.store.claim_patrol(1800)
+            self.assertTrue(due)
+        restarted = Store(self.path)
+        await restarted.initialize()
+        with patch('core.time.time',return_value=10300):
+            due, wait = await restarted.claim_patrol(1800)
+            self.assertFalse(due)
+            self.assertAlmostEqual(wait,1500)
+        with patch('core.time.time',return_value=11800):
+            results=await asyncio.gather(self.store.claim_patrol(1800),restarted.claim_patrol(1800))
+            self.assertEqual(sum(int(x[0]) for x in results),1)

@@ -35,3 +35,9 @@
 `reading.token` 只用于本机 sidecar Bearer 鉴权。`reading.budget_timezone` 默认 Asia/Shanghai。生活接口使用新增 get_public_life_state 的 activity_kind/can_browse，原始活动描述不参与判断。聊天平台回执必须由本功能分支宿主 Hook 显式提供 platform_message_id，内部 message_id 不计为分享成功。
 
 Browser operations have a 35-second per-call deadline (explicit overrides capped at 60s) and a 240-second whole-reading deadline. This accommodates measured 18–20s headless startup on the small server; timeouts still consume the daily session budget and never trigger automatic sends or unbounded retries.
+
+## Activation and observation
+
+Open `/extensions/local.entertainment/reading` in the authenticated WebUI to view counts, recent public reading impressions and bounded decision reasons. “预览一篇阅读” is an explicitly manual, single-item administrative test: it bypasses the life idle gate, consumes the same daily budget, runs asynchronously and never queues a message. “交给已配置私聊” still obeys preview, auto_share, the unique private target, real-session validation, source reservation and platform receipt checks. No public unauthenticated control endpoint is added.
+
+Patrol claims persist in SQLite across restarts; unrelated global configuration updates no longer reset the task. `not_idle` is recorded, so silent study/sleep skips are visible. `sharing.channels` defaults to `["private"]`; only configured available destinations are offered to the reading judge. Setting an LLM task name does not create a destination.

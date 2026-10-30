@@ -159,3 +159,30 @@ class PluginTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(result['success'])
         self.assertEqual((await self.p.store.status())['shared'],1)
         self.assertEqual((await self.p.store.status())['pending_reservations'],0)
+
+    async def test_idle_skip_is_visible_and_global_update_does_not_restart_loop(self):
+        self.p.config.plugin.enabled=True
+        self.p.config.reading.auto_browse=True
+        await self.p.browse()
+        self.assertEqual((await self.p.status())['decisions'][0]['reason'],'not_idle')
+        loop=self.p._loop_task
+        await self.p.on_config_update('global',{},'test')
+        self.assertIs(self.p._loop_task,loop)
+
+    async def test_manual_preview_never_queues_and_available_channels_restrict_verdict(self):
+        self.p.config.plugin.enabled=True
+        self.p.config.reading.auto_browse=True
+        self.p.config.reading.preview=False
+        self.p.config.sharing.auto_share=True
+        self.p.config.sharing.allowed_private_sessions=['real-session']
+        self.p.reader.browse=AsyncMock(return_value={'success':True,'remembered':1,'share_candidates':[{'material_id':self.item['id'],'channel':'private'}]})
+        result=await self.p.start_preview()
+        self.assertTrue(result['accepted'])
+        await self.p._manual_task
+        self.assertEqual(self.triggered,[])
+        self.assertEqual(self.p.reader.browse.call_args.args[-1],1)
+        self.assertTrue((await self.p.status())['manual_test']['result']['success'])
+        async def bad_channel(**kwargs):return {'success':True,'response':json.dumps({'remember':True,'impression':'想起一个话题','share_channel':'group'})}
+        self.p._ctx.llm.generate=bad_channel
+        verdict=await self.p.judge(self.item)
+        self.assertEqual(verdict['share_channel'],'none')

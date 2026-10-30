@@ -1,0 +1,172 @@
+{
+  "schema_version": 2,
+  "workspace_title": "兴趣阅读",
+  "pages": [
+    {
+      "id": "reading",
+      "title": "阅读与分享",
+      "placement": "workspace",
+      "icon": "list",
+      "queries": {
+        "status": {
+          "api": "status"
+        },
+        "archive": {
+          "api": "recent_readings"
+        }
+      },
+      "actions": {
+        "preview": {
+          "api": "start_preview",
+          "confirmation": "读取一篇公开笔记并调用现有模型，只预览、不发送？"
+        },
+        "share": {
+          "api": "queue_private",
+          "confirmation": "将选中阅读交给已配置的唯一私聊，仍受预览和分享开关控制？",
+          "parameters": {
+            "material_id": {
+              "type": "string",
+              "required": true
+            }
+          },
+          "arguments": {
+            "material_id": {
+              "scope": "selection",
+              "source": "note",
+              "field": "id"
+            }
+          }
+        }
+      },
+      "auto_refresh": true,
+      "poll_interval_seconds": 10,
+      "content": [
+        {
+          "type": "text",
+          "value": "阅读资料是外部见闻，不是她或用户的亲历。手动预览明确绕过生活空闲门禁，但不发送；自动阅读仍遵守作息与日预算。"
+        },
+        {
+          "type": "grid",
+          "columns": 3,
+          "children": [
+            {
+              "type": "stat",
+              "label": "已阅读",
+              "value": {
+                "source": "status",
+                "field": "readings"
+              }
+            },
+            {
+              "type": "stat",
+              "label": "已记住",
+              "value": {
+                "source": "status",
+                "field": "remembered"
+              }
+            },
+            {
+              "type": "stat",
+              "label": "已确认分享",
+              "value": {
+                "source": "status",
+                "field": "shared"
+              }
+            }
+          ]
+        },
+        {
+          "type": "text",
+          "label": "最近检查原因",
+          "value": {
+            "source": "status",
+            "field": "last_reason"
+          }
+        },
+        {
+          "type": "text",
+          "label": "手动测试",
+          "value": {
+            "source": "status",
+            "field": "manual_test.state"
+          }
+        },
+        {
+          "type": "text",
+          "label": "预览模式",
+          "value": {
+            "source": "status",
+            "field": "preview"
+          }
+        },
+        {
+          "type": "button",
+          "label": "预览一篇阅读",
+          "action": "preview"
+        },
+        {
+          "type": "table",
+          "label": "最近阅读与感想",
+          "selection": "note",
+          "value": {
+            "source": "archive",
+            "field": "items"
+          },
+          "columns": [
+            {
+              "field": "title",
+              "label": "标题"
+            },
+            {
+              "field": "impression",
+              "label": "感想"
+            },
+            {
+              "field": "remembered",
+              "label": "记住"
+            },
+            {
+              "field": "observed_at",
+              "label": "阅读时间"
+            },
+            {
+              "field": "url",
+              "label": "来源"
+            }
+          ]
+        },
+        {
+          "type": "button",
+          "label": "交给已配置私聊",
+          "action": "share",
+          "disabled_when": {
+            "reference": {
+              "scope": "selection",
+              "source": "note"
+            },
+            "operator": "empty"
+          },
+          "disabled_reason": "先选择一条已记住的阅读"
+        },
+        {
+          "type": "table",
+          "label": "检查记录",
+          "value": {
+            "source": "status",
+            "field": "decisions"
+          },
+          "columns": [
+            {
+              "field": "at",
+              "label": "时间"
+            },
+            {
+              "field": "reason",
+              "label": "原因"
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

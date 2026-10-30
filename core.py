@@ -85,6 +85,7 @@ class Store:
             CREATE TABLE IF NOT EXISTS shares(material_id TEXT PRIMARY KEY, channel TEXT NOT NULL, target_hash TEXT NOT NULL, receipt_id TEXT NOT NULL, shared REAL NOT NULL);
             CREATE TABLE IF NOT EXISTS leases(material_id TEXT PRIMARY KEY, channel TEXT NOT NULL, lease_id TEXT NOT NULL, target_hash TEXT NOT NULL);
             CREATE TABLE IF NOT EXISTS budgets(day TEXT PRIMARY KEY, used INTEGER NOT NULL);
+            CREATE TABLE IF NOT EXISTS patrol(id INTEGER PRIMARY KEY CHECK(id=1), last_at REAL NOT NULL);
             CREATE TABLE IF NOT EXISTS decisions(id INTEGER PRIMARY KEY, at REAL NOT NULL, reason TEXT NOT NULL);
             CREATE TABLE IF NOT EXISTS pending(task_id TEXT PRIMARY KEY, material_id TEXT NOT NULL, channel TEXT NOT NULL, session TEXT NOT NULL, expires REAL NOT NULL);
             ''')
@@ -160,6 +161,24 @@ class Store:
             return [item for row in rows if query.casefold() in json.dumps(item := json.loads(row[0]), ensure_ascii=False).casefold()][:max(1,min(5,int(limit)))]
         return await asyncio.to_thread(self._work, recall)
 
+    async def claim_patrol(self, interval):
+        interval = max(60, min(86400, float(interval)))
+        now = time.time()
+        def claim(db):
+            db.execute('BEGIN IMMEDIATE')
+            row = db.execute('SELECT last_at FROM patrol WHERE id=1').fetchone()
+            remaining = interval - max(0, now - row[0]) if row else 0
+            if remaining > 0:
+                return False, remaining
+            db.execute('INSERT INTO patrol VALUES(1,?) ON CONFLICT(id) DO UPDATE SET last_at=excluded.last_at', (now,))
+            return True, interval
+        return await asyncio.to_thread(self._work, claim)
+
+    async def recent(self):
+        def get(db):
+            return [dict(json.loads(row[0]), remembered=bool(row[1])) for row in db.execute('SELECT material,remembered FROM readings ORDER BY observed DESC LIMIT 20')]
+        return await asyncio.to_thread(self._work, get)
+
     async def take_budget(self, maximum):
         if maximum <= 0:
             return False
@@ -182,7 +201,7 @@ class Store:
 
     async def status(self):
         def status(db):
-            return {'readings':db.execute('SELECT COUNT(*) FROM readings').fetchone()[0], 'remembered':db.execute('SELECT COUNT(*) FROM readings WHERE remembered=1').fetchone()[0], 'shared':db.execute('SELECT COUNT(*) FROM shares').fetchone()[0], 'pending_reservations':db.execute('SELECT COUNT(*) FROM leases').fetchone()[0], 'decisions':[dict(row) for row in db.execute('SELECT at,reason FROM decisions ORDER BY id DESC LIMIT 20')]}
+            return {'last_reason':(db.execute('SELECT reason FROM decisions ORDER BY id DESC LIMIT 1').fetchone() or ['not_checked'])[0], 'readings':db.execute('SELECT COUNT(*) FROM readings').fetchone()[0], 'remembered':db.execute('SELECT COUNT(*) FROM readings WHERE remembered=1').fetchone()[0], 'shared':db.execute('SELECT COUNT(*) FROM shares').fetchone()[0], 'pending_reservations':db.execute('SELECT COUNT(*) FROM leases').fetchone()[0], 'decisions':[dict(row) for row in db.execute('SELECT at,reason FROM decisions ORDER BY id DESC LIMIT 20')]}
         return await asyncio.to_thread(self._work, status)
 
     async def bind_task(self, task_id, material_id, channel, session):
