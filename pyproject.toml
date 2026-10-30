@@ -1,0 +1,8 @@
+[project]
+name = "maibot-local-entertainment"
+version = "0.1.0"
+requires-python = ">=3.12"
+dependencies = ["maibot-plugin-sdk>=2.12,<3", "aiohttp>=3.9,<4"]
+
+[tool.ruff]
+line-length = 120

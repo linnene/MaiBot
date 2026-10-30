@@ -1,0 +1,11 @@
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+.venv/
+config.toml
+.env*
+*.sqlite*
+*.db*
+data/
+cookies*

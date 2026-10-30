@@ -1,0 +1,2 @@
+maibot-plugin-sdk>=2.12,<3
+aiohttp>=3.9,<4
