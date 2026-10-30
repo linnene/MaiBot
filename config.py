@@ -12,7 +12,7 @@ class PluginSectionConfig(PluginConfigBase):
     __ui_order__ = 0
 
     enabled: bool = Field(default=True, description="是否启用插件")
-    config_version: float = Field(default=1.0, description="配置版本")
+    config_version: float = Field(default=1.1, description="配置版本")
     text_model: str = Field(
         default="replyer",
         description="[默认即可]使用的文本模型在主程序的任务名（'replyer','planner','embedding', 'emoji', 'learner', 'memory', 'utils', 'vlm', 'voice'）"
@@ -32,6 +32,9 @@ class SendConfig(PluginConfigBase):
 
     __ui_label__ = "发说说"
     __ui_order__ = 1
+
+    natural_mode: bool = Field(default=False, description="启用自然碎念/阅读来源模式；不读取聊天记录，不强制配图，可跳过发布")
+    natural_vision_model: str = Field(default="vlm", description="自然模式图片内容核验的视觉模型任务名；不可用时仅发文字")
 
     # === 原有配置 ===
     history_number: int = Field(

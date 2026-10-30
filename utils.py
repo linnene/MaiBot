@@ -376,6 +376,22 @@ async def send_feed(topic: str) -> Tuple[bool, str]:
     logger = plugin_context.ctx.logger  # type: ignore
     config = plugin_context.config  # type: ignore
 
+    if getattr(config.send, "natural_mode", False):
+        async def publish_natural(message, images):
+            await renew_cookies(config.plugin.http_host, config.plugin.http_port, config.plugin.napcat_token)
+            qzone = create_qzone_api()
+            if qzone is None:
+                return None
+            return await qzone.publish_emotion(message, images)
+        try:
+            result = await plugin_context.natural_service.publish(topic, publish_natural)
+        except Exception as exc:
+            logger.error(f"自然说说失败: {type(exc).__name__}: {exc}")
+            return False, f"自然说说失败: {type(exc).__name__}"
+        if result.get("skipped"):
+            return True, "这次没有想发的内容，已跳过"
+        return bool(result["success"]), result.get("message", result.get("error", "自然说说失败"))
+
     # ===== 1. 构建基础 prompt =====
     prompt_pattern = plugin_context.config.send.prompt # type: ignore
     prompt = prompt_pattern.format(

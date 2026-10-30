@@ -243,3 +243,17 @@ self.ctx.logger.info(f"API 调用结果:{result}")
 - 部分代码来自仓库：[qzone-toolkit](https://github.com/gfhdhytghd/qzone-toolkit)
 - 感谢[xc94188](https://github.com/xc94188)、[myxxr](https://github.com/myxxr)、[UnCLAS-Prommer](https://github.com/UnCLAS-Prommer)、[XXXxx7258](https://github.com/XXXxx7258)、[heitiehu-beep](https://github.com/heitiehu-beep)提供的功能改进
 - 魔改版麦麦，集成了魔改版插件[MoFox_Bot](https://github.com/MoFox-Studio/MoFox_Bot)
+
+### 自然说说（默认关闭）
+
+在原生插件配置中设置 `send.natural_mode = true` 后，`send_feed` 指令、工具及原有定时发送入口会走自然碎念流程。旧模式默认保持不变；直接提供正文的 `send_feed_api` 仍按原接口发布。
+
+新模式优先从 `local.entertainment.get_materials(channel="qzone", limit=3)` 读取已记住的外部阅读素材。草稿可以不发，不会把读到的旅行、料理等变成本人的亲历；正文保留来源标题、作者与无令牌链接。娱乐插件不可用时仍可基于兴趣生成短感想；无有效素材或草稿格式错误会明确失败。不读取聊天记录、日记、关系或日程；生活输入仅取数值状态类别和精确匹配的活动枚举，不转发地点、未知活动叙述。
+
+`internetsb.maizone.preview_natural_feed_api(topic="")` 是只生成草稿的公开 API，返回 `success / skipped / message / material_id / image_url / image_attached`，不续 Cookie、不登录、不发送、不占用素材、不记录分享。该 API 仍可能使用配置的文本/视觉模型及可选图片读取，并非零模型开销。
+
+`send.enable_image` 在新模式中仅允许可选真实配图，不调用旧 AI 生图或表情发送动作。优先用素材图片，否则调用数据接口 `xxxxx7258.google-search-plugin.search_image_material(query=...)`。下载仅允许 HTTPS，检查公开 DNS 并固定连接地址/TLS 主机名，不跟随重定向，最多 5 MiB、1600 万像素，实际解码仅接受单帧 PNG/JPEG/WebP。图片必须经过 `send.natural_vision_model`（默认 `vlm`）对真实像素和最终文案的核验；模型不支持视觉、超时、返回不确定或不匹配均仅发文字。配图来源也附在正文。核验是模型判断，不能证明图片版权或天然消除语义误判。
+
+发送前通过娱乐插件 `reserve_material` 取得持久租约；只有 Qzone 返回真实动态 ID 后调用 `record_share(..., receipt_id=str(fid), lease_id=...)`。明确失败释放租约；超时、崩溃等不确定结果保留租约及插件数据目录的 `natural_receipts.json` 待人工核对，避免重启重复发送。分享登记暂时失败仍保留已成功发布的本地收据。人工核对真实空间后，才能决定补登记或通过 `release_material(material_id,lease_id)` 释放；不要直接删除防重记录后重试。
+
+离线回放：`python -m pytest tests/test_natural.py -q`。测试使用合成素材、模拟 SDK/LLM/HTTP/Qzone，无真实 QQ 发送、登录或模型请求；不证明自然程度、在线账号稳定性或视觉服务可用。

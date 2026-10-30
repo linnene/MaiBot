@@ -2,6 +2,7 @@ from maibot_sdk import Command, MaiBotPlugin, Tool, API
 from maibot_sdk.types import ToolParameterInfo, ToolParamType
 
 from .config import MaizonePluginConfig
+from .natural import NaturalFeedService
 from .cookie import renew_cookies, set_api_capability, set_cookie_logger
 from .qzone_api import create_qzone_api, set_qzoneapi_logger
 from .image import set_images_plugin_context
@@ -16,6 +17,7 @@ class MaizonePlugin(MaiBotPlugin):
 
     async def on_load(self):
         """插件加载：检查配置、测试napcat连接、注册定时任务等"""
+        self.natural_service = NaturalFeedService(self, self.ctx.paths.data_dir / "natural_receipts.json")
         set_api_capability(self.ctx.api)
         set_tasks_logger(self.ctx.logger)
         set_qzoneapi_logger(self.ctx.logger)
@@ -208,6 +210,17 @@ class MaizonePlugin(MaiBotPlugin):
             return True
         return default
     
+    @API(name="preview_natural_feed_api", description="仅生成自然说说草稿，不登录、不发布、不记录分享", version="1", public=True)
+    async def preview_natural_feed_api(self, topic: str = "", **kwargs):
+        try:
+            async with self.natural_service.lock:
+                draft = await self.natural_service.draft(topic)
+            images = draft.pop("images", [])
+            draft["image_attached"] = bool(images)
+            return draft
+        except Exception as exc:
+            return {"success": False, "error": f"{type(exc).__name__}: {exc}"}
+
     @API(
         name="send_feed_api",
         description="发送说说，参数：message：文本内容（可选），images：图片二进制数据列表（可选）",

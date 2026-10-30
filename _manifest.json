@@ -45,6 +45,11 @@
       "type": "python_package",
       "name": "httpx",
       "version_spec": ">=0.0.1"
+    },
+    {
+      "type": "python_package",
+      "name": "Pillow",
+      "version_spec": ">=10.4"
     }
   ],
   "capabilities": [
