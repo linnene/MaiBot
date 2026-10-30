@@ -270,3 +270,36 @@ def test_source_selected_prose_cannot_drop_attribution_or_share_identity(tmp_pat
         asyncio.run(service.publish("", publisher))
     publisher.assert_not_called()
     assert not any(name.endswith(("reserve_material", "record_share")) for name, _ in calls)
+
+
+def test_cross_plugin_real_sqlite_lease_receipt_contract(tmp_path):
+    reader_core = Path(__file__).parents[2] / "entertainment" / "core.py"
+    if not reader_core.exists():
+        pytest.skip("optional sibling entertainment integration checkout unavailable")
+    spec = spec_from_file_location("reader_contract_core", reader_core)
+    core = module_from_spec(spec)
+    spec.loader.exec_module(core)
+    async def replay():
+        store = core.Store(tmp_path / "readings.sqlite3")
+        await store.initialize()
+        material = core.normalize_feed({"id": "synthetic-note", "title": "摄影"})
+        await store.save(material, "喜欢柔和颜色", True)
+        service, _ = setup(tmp_path, draft={"skip": False, "text": "读到这组照片，想试试柔和的颜色。", "material_id": material["id"], "image_query": ""})
+        async def bridge(name, **kwargs):
+            kwargs.pop("version", None)
+            if name.endswith("get_materials"):
+                return {"success": True, "materials": await store.materials(kwargs["limit"])}
+            if name.endswith("reserve_material"):
+                return await store.reserve(**kwargs)
+            if name.endswith("record_share"):
+                return await store.record_share(**kwargs)
+            if name.endswith("release_material"):
+                return await store.release(**kwargs)
+            return {}
+        service.plugin.ctx.api.call = bridge
+        result = await service.publish("", AsyncMock(return_value="qzone-real-synthetic-fid"))
+        assert result["success"]
+        assert (await store.status())["shared"] == 1
+        assert (await store.status())["pending_reservations"] == 0
+        assert await store.materials(3) == []
+    asyncio.run(replay())
