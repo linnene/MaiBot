@@ -12,14 +12,14 @@ from pathlib import Path
 from typing import Any
 from zoneinfo import ZoneInfo
 
-from maibot_sdk import API, Field, MaiBotPlugin, Tool
+from maibot_sdk import API, MaiBotPlugin, Tool
 from maibot_sdk.types import ToolParameterInfo
 
 from config import TravelConfig
 from domain.clock import local_date
 from domain.ledger import Ledger
 from domain.opportunities import OpportunityService
-from domain.trips import TripNotFound, TripService
+from domain.trips import TripService
 from memory_outbox import MemoryOutbox
 from planner import DecisionBudget, Planner, ResearchClient
 from publishing import Publishing

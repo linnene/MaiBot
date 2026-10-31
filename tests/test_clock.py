@@ -5,7 +5,7 @@ from __future__ import annotations
 import sys
 import unittest
 
-from datetime import datetime, timezone
+from datetime import datetime
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
