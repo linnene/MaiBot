@@ -148,7 +148,7 @@
       "source": {
         "repository": "https://github.com/linnene/MaiBot.git",
         "ref": "feat/virtual-travel-plugin",
-        "commit": "8a17f5d6e39de896f2a2f452e8b54fca36a95777"
+        "commit": "a7fe3f50d312fef1ebb45d71f58dd56b7dc6e313"
       },
       "upstream": "https://github.com/linnene/MaiBot",
       "private_runtime_assets": [
