@@ -5,9 +5,11 @@ import hashlib
 import json
 import random
 import time
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 from pathlib import Path
 from typing import Any
+
+from .travel_projection import overlay_day
 
 _ALLOWED={"meal","work","study","travel","leisure","sleep","nap","rest"}
 
@@ -61,6 +63,21 @@ class ScheduleService:
     def __init__(self, store: Any, config: Any, llm: Any, plugin_dir: str, logger: Any, bot_name: str = "麦麦") -> None:
         self.store=store; self.config=config; self.llm=llm; self.plugin_dir=Path(plugin_dir); self.logger=logger
         self.bot_name=bot_name; self._personality=""
+        # 每轮维护注入同一份旅行投影，日程/时间线/场景消费者共享，避免各自读到不同版本。
+        self._travel_projection:dict[str,Any]|None=None
+
+    def set_travel_projection(self,projection:dict[str,Any]|None)->None:
+        """冻结本轮旅行投影；None 表示本轮没有可用投影。"""
+        self._travel_projection=projection
+
+    def _travel_overlay(self,day:str,nodes:list[dict[str,Any]])->list[dict[str,Any]]:
+        """把旅行硬行程覆盖到当天日程，剩余时间仍由麦生活安排。"""
+        if not self._travel_projection:return list(nodes)
+        try:day_value=date.fromisoformat(day)
+        except ValueError:return list(nodes)
+        zone=str(self._travel_projection.get("timezone")
+                 or getattr(self.config.environment,"timezone","Asia/Shanghai"))
+        return overlay_day(day_value,list(nodes),self._travel_projection,zone)
 
     def _life_identity(self) -> str:
         """生活身份独立于聊天人格；旧配置留空时继续兼容人格中的身份线索。"""
@@ -226,7 +243,7 @@ class ScheduleService:
                          environment: dict[str,Any]|None=None) -> list[dict[str, Any]]:
         self._personality=str(personality or "")
         day=now.strftime("%Y-%m-%d"); existing=await self.store.get_framework(day)
-        if existing and not force: return existing
+        if existing and not force: return self._travel_overlay(day,existing)
         # 聊天人格只负责性格；稳定生活身份优先来自插件配置，旧配置留空时才兼容人格线索。
         self._personality=str(personality or "")
         life_identity=self._life_identity()
@@ -295,7 +312,7 @@ class ScheduleService:
         digest=hashlib.sha256(prompt.encode()).hexdigest()[:16]
         self.logger.info(f"[MaiLife] schedule_inputs day={day} source={source} input_digest={digest} "
                          f"personality_chars={len(personality)} weather={weather_text} nodes={len(nodes)}")
-        await self.store.replace_framework(day,nodes); return await self.store.get_framework(day)
+        await self.store.replace_framework(day,nodes); return self._travel_overlay(day,await self.store.get_framework(day))
 
     @staticmethod
     def current_and_next(nodes: list[dict[str, Any]], minute: int) -> tuple[dict[str, Any]|None,dict[str, Any]|None]:
@@ -310,7 +327,8 @@ class ScheduleService:
     async def expand_due(self, now: datetime, nodes: list[dict[str, Any]], state: dict[str, Any], weather_text: str) -> None:
         """细化当前与下一节点；状态增量始终由本地规则生成，模型只写叙事和机会。"""
         minute=now.hour*60+now.minute; lead=self.config.schedule.detail_lead_minutes
-        due=[n for n in nodes if n["end_minute"]>minute and n["start_minute"]<=minute+lead][:2]
+        due=[n for n in nodes if n["end_minute"]>minute and n["start_minute"]<=minute+lead
+             and n.get("kind")!="travel"][:2]
         for node in due:
             if await self.store.get_scene(node["id"]): continue
             expires=datetime.combine(now.date(),datetime.min.time(),tzinfo=now.tzinfo)+timedelta(minutes=node["end_minute"])
@@ -350,6 +368,8 @@ class ScheduleService:
             if window_end<=window_start:day+=timedelta(days=1); continue
             stored=await self.store.get_framework(day.isoformat())
             nodes=stored or self._fallback(day.isoformat(),day.weekday()>=5)
+            # 旅行硬行程与当天模板共用同一份投影，跨天窗口也能保持唯一当前位置。
+            nodes=self._travel_overlay(day.isoformat(),nodes)
             windows.append((window_start,window_end,day_start,stored,nodes))
             day+=timedelta(days=1)
         # 先收集窗口内所有已存储框架的节点 ID，再一次性查询场景，消除每节点一次 get_scene。
@@ -381,5 +401,6 @@ class ScheduleService:
     async def context(self, now: datetime) -> dict[str, Any]:
         """返回今日框架、当前/下一节点和当前节点唯一的细化场景。"""
         nodes=await self.store.get_framework(now.strftime("%Y-%m-%d")); minute=now.hour*60+now.minute
+        nodes=self._travel_overlay(now.strftime("%Y-%m-%d"),nodes)
         current,nxt=self.current_and_next(nodes,minute); scene=await self.store.get_scene(current["id"]) if current else {}
         return {"nodes":nodes,"current":current,"next":nxt,"scene":scene}

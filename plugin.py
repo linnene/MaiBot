@@ -28,6 +28,7 @@ from .life.memory_service import MemoryService
 from .life.proactive import ProactiveEngine
 from .life.rest_gate import BLOCK_REASON,RestGate
 from .life.schedule_service import ScheduleService,hhmm
+from .life.travel_projection import TravelProjectionClient
 from .messaging.adapter_compat import adapter_name,component_kind,component_text,group_identity,recall_notice,sender_identity
 from .messaging.command_catalog import build_command_usage_text
 from .messaging.command_reply import CommandReplyService
@@ -192,6 +193,9 @@ class MaiLifePlugin(MaiBotPlugin):
 
     config_model=MaiLifeSettings
     config_reload_subscriptions:ClassVar[Iterable[str]]=("bot","model")
+    # 未完成首次维护前没有旅行投影；聊天背景按“没有旅行”处理，而不是猜测。
+    _travel_snapshot:dict[str,Any]|None=None
+    _travel:TravelProjectionClient|None=None
 
     def __init__(self)->None:
         super().__init__()
@@ -283,6 +287,9 @@ class MaiLifePlugin(MaiBotPlugin):
         self._env=EnvironmentService(self._store,self.config,self.ctx.logger)
         self._state=LifeStateEngine(self._store,self.config,self._llm,self.ctx.logger,bot_name=self._bot_name)
         self._schedule=ScheduleService(self._store,self.config,self._llm,root,self.ctx.logger,bot_name=self._bot_name)
+        # 旅行投影只读消费；每轮维护取一次，日程与聊天背景共用同一版本。
+        self._travel=TravelProjectionClient(getattr(self.ctx,"api",None),self.ctx.logger)
+        self._travel_snapshot:dict[str,Any]|None=None
         self._rest=RestGate(self._store,self.config,self._llm,self._state,self.ctx.logger,bot_name=self._bot_name)
         self._proactive=ProactiveEngine(self.ctx,self._store,self.config,self._env,self.ctx.logger)
         self._debouncer=MessageDebouncer(self.config,self.ctx.logger)
@@ -478,10 +485,13 @@ class MaiLifePlugin(MaiBotPlugin):
         async with self._maintenance_lock:
             assert self._env and self._schedule and self._store and self._state and self._memory
             now=self._env.now(); weather=await self._env.refresh_weather(force=force_weather,allow_network=allow_weather_network)
+            # 本轮只取一次旅行投影，日程、状态时间线与聊天背景共享同一版本。
+            travel=await self._travel.snapshot(now,now+timedelta(hours=24)) if self._travel is not None else None
+            self._travel_snapshot=travel; self._schedule.set_travel_projection(travel)
             if self.config.linkage.drawpic_enabled:await self._check_drawpic()  # 覆盖运行中途安装/卸载
             memory_context=await self._memory.schedule_context(now)
             nodes=await self._schedule.ensure_day(now,self._personality,self._env.weather_text(weather),memory_context=memory_context,
-                                                  environment=self._env.snapshot(now))
+                                                  environment=self._env.snapshot(now,travel=travel))
             context=await self._schedule.context(now); state=await self._store.get_state()
             await self._schedule.expand_due(now,nodes,state,self._env.weather_text(weather)); context=await self._schedule.context(now)
             last_updated=float(state.get("last_updated_at") or now.timestamp())
@@ -1159,7 +1169,8 @@ class MaiLifePlugin(MaiBotPlugin):
         return {"state":await self._store.get_state(),"weather":await self._store.get_weather() or {"description":"天气未知"},
                 "context":await self._schedule.context(now),"user":user,"dream":await self._store.latest_dream(),"backlogs":backlogs,
                 "environment":self._env.snapshot(now,platform=str(runtime.get("platform") or "qq"),adapter=str(runtime.get("adapter") or "unknown"),
-                                                 chat_type="private",media=runtime.get("media") or ["text"]),
+                                                 chat_type="private",media=runtime.get("media") or ["text"],
+                                                 travel=self._travel_snapshot),
                 "continuity":continuity,"intent":str(runtime.get("intent") or ""),
                 "memory":await self._memory.context_for_user(user,now),
                 "information":await self._information.context(now),

@@ -288,7 +288,8 @@ class EnvironmentService:
         return text
 
     def snapshot(self, now: datetime | None = None, *, platform: str = "qq", adapter: str = "unknown",
-                 chat_type: str = "private", media: list[str] | None = None) -> dict[str, Any]:
+                 chat_type: str = "private", media: list[str] | None = None,
+                 travel: dict[str, Any] | None = None) -> dict[str, Any]:
         """构造完全离线的环境快照；历法不可用时明确降级而不编造。"""
         current=now or self.now(); day=current.date(); weekday=("星期一","星期二","星期三","星期四","星期五","星期六","星期日")[day.weekday()]
         is_workday=day.weekday()<5; holiday_name=""
@@ -308,7 +309,10 @@ class EnvironmentService:
                 if jieqi:solar_term=jieqi
             except Exception:pass
         upcoming=self._upcoming_festival(day)
-        return {
+        location=(travel or {}).get("location") or {}
+        travel_place=str(location.get("place") or "").strip() if isinstance(location,dict) else ""
+        travel_zone=str((travel or {}).get("timezone") or "").strip()
+        payload={
             "iso_time":current.isoformat(timespec="seconds"),"timezone":str(self.config.environment.timezone),
             "date":day.isoformat(),"weekday":weekday,"time_period":self._time_period(current.hour),
             "is_workday":is_workday,"day_type":holiday_name or ("工作日" if is_workday else "休息日"),
@@ -316,4 +320,13 @@ class EnvironmentService:
             "upcoming_festival":upcoming,
             "platform":platform or "unknown","adapter":adapter or "unknown","chat_type":chat_type,"media":list(media or ["text"]),
             "calendar_support":{"china_calendar":_china_calendar is not None,"lunar":_LunarSolar is not None},
+            "weather_scope":"home",
         }
+        # 旅行期间明确使用目的地时区与地点；没有目的地天气时标记未知，不能拿家乡天气冒充当地实况。
+        if travel_place:
+            payload["travel_location"]=travel_place[:80]
+            payload["weather_scope"]="destination_unknown"
+        if travel_zone:
+            payload["travel_timezone"]=travel_zone
+        payload["calendar_support"]["travel_projection"]=bool(travel_place)
+        return payload
