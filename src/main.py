@@ -203,6 +203,11 @@ class MainSystem:
         logger.info(t("startup.chat_manager_initialized"))
         await memory_automation_service.start()
 
+        # 虚拟旅行自身经历的最小投递桥；插件配置未开启导出时只读跳过。
+        from src.services.virtual_travel_memory import start_virtual_travel_memory_bridge
+
+        start_virtual_travel_memory_bridge()
+
         # await asyncio.sleep(0.5) #防止logger输出飞了
 
         # 触发 ON_START 事件，事件总线会统一桥接到 IPC 插件运行时。
