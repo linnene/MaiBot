@@ -90,21 +90,41 @@ def projection(phase: str = "in_transit", *, start: datetime | None = None, end:
 
 class OverlayTests(unittest.TestCase):
     def test_travel_hard_segment_replaces_student_template(self) -> None:
-        merged = overlay_day(NOW.date(), template_nodes(), projection())
+        merged = overlay_day(NOW.date(), template_nodes(), projection(), "Asia/Tokyo")
         kinds = [(item["start_minute"], item["kind"], item["summary"]) for item in merged]
         self.assertIn((570, "travel", "在去Tokyo的路上"), kinds)
         self.assertFalse(any(item["summary"] == "上午去学校上课" for item in merged))
         self.assertTrue(any(item["summary"] == "吃午饭" for item in merged))
 
     def test_flight_keeps_one_location_and_does_not_land_early(self) -> None:
-        merged = overlay_day(NOW.date(), template_nodes(), projection())
+        merged = overlay_day(NOW.date(), template_nodes(), projection(), "Asia/Tokyo")
         travel = [item for item in merged if item["kind"] == "travel"]
         self.assertEqual(len(travel), 1)
-        self.assertEqual(travel[0]["location"], "Tokyo")
+        # 在途时仍在出发地，落地城市不能提前成为当前位置。
+        self.assertEqual(travel[0]["location"], "Shanghai")
         self.assertEqual(travel[0]["start_minute"], 570)
 
+    def test_home_day_minutes_use_home_timezone_not_trip_zone(self) -> None:
+        home = ZoneInfo("Asia/Shanghai")
+        start = datetime(2026, 11, 2, 20, 0, tzinfo=home)
+        proj = projection("in_transit", start=start, end=start + timedelta(hours=14))
+        proj["timezone"] = "America/New_York"
+        merged = overlay_day(datetime(2026, 11, 2).date(), template_nodes(), proj, "Asia/Shanghai")
+        travel = [item for item in merged if item["kind"] == "travel"]
+        self.assertEqual(len(travel), 1)
+        self.assertEqual(travel[0]["start_minute"], 1200)
+
+    def test_stale_active_projection_freezes_travel_instead_of_school(self) -> None:
+        proj = projection("staying", start=NOW, end=NOW + timedelta(hours=2))
+        proj["segments"][0]["start_at"] = NOW.timestamp() - 10 * 86400
+        proj["segments"][0]["end_at"] = NOW.timestamp() - 9 * 86400
+        merged = overlay_day(NOW.date(), template_nodes(), proj, "Asia/Tokyo")
+        self.assertEqual(len(merged), 1)
+        self.assertEqual(merged[0]["kind"], "travel")
+        self.assertIn("降级", merged[0]["summary"])
+
     def test_completed_trip_restores_normal_schedule(self) -> None:
-        merged = overlay_day(NOW.date(), template_nodes(), projection("completed"))
+        merged = overlay_day(NOW.date(), template_nodes(), projection("completed"), "Asia/Tokyo")
         self.assertEqual([item["id"] for item in merged], [item["id"] for item in template_nodes()])
         self.assertFalse(any(item["kind"] == "travel" for item in merged))
 
@@ -194,7 +214,7 @@ class ScheduleIntegrationTests(unittest.IsolatedAsyncioTestCase):
         context = await service.context(NOW + timedelta(hours=1))
         self.assertIsNotNone(context["current"])
         self.assertEqual(context["current"]["kind"], "travel")
-        self.assertEqual(context["current"]["location"], "Tokyo")
+        self.assertEqual(context["current"]["location"], "Shanghai")
 
     async def test_state_timeline_uses_travel_segment_for_offline_advance(self) -> None:
         service, _store = make_schedule(template_nodes())
@@ -204,7 +224,7 @@ class ScheduleIntegrationTests(unittest.IsolatedAsyncioTestCase):
         )
         travel_spans = [span for span in spans if span["segment"].get("kind") == "travel"]
         self.assertEqual(len(travel_spans), 1)
-        self.assertEqual(travel_spans[0]["segment"]["location"], "Tokyo")
+        self.assertEqual(travel_spans[0]["segment"]["location"], "Shanghai")
 
     async def test_expand_due_does_not_refine_travel_hard_segments(self) -> None:
         service, store = make_schedule([node("t", 540, 600, "travel", "在去Tokyo的路上", "Tokyo")])

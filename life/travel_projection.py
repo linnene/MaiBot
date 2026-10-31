@@ -11,6 +11,9 @@ import logging
 
 API_NAME = "local.virtual-travel.get_travel_projection"
 TERMINAL_PHASES = {"none", "cancelled", "completed"}
+# 只有已确认或已在途的行程才能覆盖日程；想法/草稿不改变她的生活。
+ACTIVE_PHASES = {"confirmed", "preparing", "in_transit", "staying", "returning"}
+TRAVELLING_PHASES = {"in_transit", "staying", "returning"}
 PHASE_SUMMARIES = {
     "in_transit": "在去{destination}的路上",
     "staying": "在{place}游玩",
@@ -113,8 +116,10 @@ def _travel_node(
     end_minute: int,
 ) -> dict[str, Any]:
     phase = str(segment.get("phase") or "")
-    place = str(segment.get("to_place") or "")
-    destination = place or str(segment.get("title") or "")
+    destination = str(segment.get("to_place") or segment.get("title") or "")
+    place = str(segment.get("to_place") or "") if phase == "staying" else str(
+        segment.get("from_place") or ""
+    )
     summary = PHASE_SUMMARIES.get(phase, "{destination}").format(
         destination=destination, place=place or destination
     )
@@ -125,7 +130,8 @@ def _travel_node(
         "end_minute": max(1, min(1440, end_minute)),
         "kind": "travel",
         "summary": summary[:160] or "在路上",
-        "location": (place or str(segment.get("title") or "路上"))[:80],
+        # 在途时她仍在出发地，不能把落地城市提前当成当前位置。
+        "location": (place or destination or "路上")[:80],
         "energy_load": -2.0,
         "shareability": 0.5,
     }
@@ -164,19 +170,20 @@ def overlay_day(
     day: date,
     nodes: list[dict[str, Any]],
     projection: dict[str, Any] | None,
-    fallback_timezone: str = "Asia/Shanghai",
+    display_timezone: str = "Asia/Shanghai",
 ) -> list[dict[str, Any]]:
-    """用旅行硬行程覆盖当天的学生/模板日程，剩余时间仍由麦生活安排。"""
+    """用旅行硬行程覆盖当天的学生/模板日程，剩余时间仍由麦生活安排。
+
+    日期边界按麦生活本地的展示时区切分，避免把旅行时区的分钟数套到家乡日期上。
+    """
 
     if not projection:
         return list(nodes)
-    if str(projection.get("phase") or "") in TERMINAL_PHASES:
+    phase = str(projection.get("phase") or "")
+    if phase in TERMINAL_PHASES or phase not in ACTIVE_PHASES:
         return list(nodes)
     segments = projection.get("segments") or []
-    if not segments:
-        return list(nodes)
-    timezone = str(projection.get("timezone") or fallback_timezone)
-    zone = ZoneInfo(timezone)
+    zone = ZoneInfo(display_timezone)
     day_start = datetime.combine(day, time.min, tzinfo=zone)
     day_end = day_start + timedelta(days=1)
     spans: list[tuple[int, int]] = []
@@ -198,6 +205,23 @@ def overlay_day(
         spans.append((start_minute, end_minute))
         travel_nodes.append(_travel_node(day, segment, start_minute, end_minute))
     if not spans:
+        if phase in TRAVELLING_PHASES:
+            # 快照仍说她在旅途中，但没有覆盖当天的行程段：冻结旅行状态，不能瞬间回学校。
+            location = projection.get("location")
+            place = str(location.get("place") or "") if isinstance(location, dict) else ""
+            return [
+                {
+                    "id": f"travel:degraded:{day.isoformat()}",
+                    "day": day.isoformat(),
+                    "start_minute": 0,
+                    "end_minute": 1440,
+                    "kind": "travel",
+                    "summary": "在旅行中（日程联动降级）",
+                    "location": (place or "外地")[:80],
+                    "energy_load": -2.0,
+                    "shareability": 0.4,
+                }
+            ]
         return list(nodes)
     kept: list[dict[str, Any]] = []
     for node in nodes:

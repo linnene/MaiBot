@@ -75,9 +75,9 @@ class ScheduleService:
         if not self._travel_projection:return list(nodes)
         try:day_value=date.fromisoformat(day)
         except ValueError:return list(nodes)
-        zone=str(self._travel_projection.get("timezone")
-                 or getattr(self.config.environment,"timezone","Asia/Shanghai"))
-        return overlay_day(day_value,list(nodes),self._travel_projection,zone)
+        # 日程日期键属于麦生活本地时区；旅行段按 epoch 换算，不能把旅行时区的分钟直接套上。
+        display_zone=str(getattr(self.config.environment,"timezone","Asia/Shanghai"))
+        return overlay_day(day_value,list(nodes),self._travel_projection,display_zone)
 
     def _life_identity(self) -> str:
         """生活身份独立于聊天人格；旧配置留空时继续兼容人格中的身份线索。"""

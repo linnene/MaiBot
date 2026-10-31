@@ -479,6 +479,13 @@ class MaiLifePlugin(MaiBotPlugin):
             except asyncio.CancelledError:raise
             except Exception as exc:self.ctx.logger.error(f"[MaiLife] 书柜创作巡检异常: {exc}")
 
+    def _weather_for_travel(self,weather:dict[str,Any],travel:dict[str,Any]|None)->str:
+        """旅行期间不能把家乡天气写进目的地日程提示。"""
+        location=(travel or {}).get("location") or {}
+        place=str(location.get("place") or "").strip() if isinstance(location,dict) else ""
+        if not place:return self._env.weather_text(weather)
+        return f"目的地{place}天气未知；不要用家乡的天气描述当地实况"
+
     async def _maintenance_tick(self,force_weather:bool=False,*,allow_weather_network:bool=True)->None:
         """串行维护天气、日程细化、离线状态、记忆、关系结算和运行记录清理。"""
         if not self._ready:return
@@ -486,14 +493,15 @@ class MaiLifePlugin(MaiBotPlugin):
             assert self._env and self._schedule and self._store and self._state and self._memory
             now=self._env.now(); weather=await self._env.refresh_weather(force=force_weather,allow_network=allow_weather_network)
             # 本轮只取一次旅行投影，日程、状态时间线与聊天背景共享同一版本。
-            travel=await self._travel.snapshot(now,now+timedelta(hours=24)) if self._travel is not None else None
+            travel=await self._travel.snapshot(now,now+timedelta(days=7)) if self._travel is not None else None
             self._travel_snapshot=travel; self._schedule.set_travel_projection(travel)
+            travel_weather=self._weather_for_travel(weather,travel)
             if self.config.linkage.drawpic_enabled:await self._check_drawpic()  # 覆盖运行中途安装/卸载
             memory_context=await self._memory.schedule_context(now)
-            nodes=await self._schedule.ensure_day(now,self._personality,self._env.weather_text(weather),memory_context=memory_context,
+            nodes=await self._schedule.ensure_day(now,self._personality,travel_weather,memory_context=memory_context,
                                                   environment=self._env.snapshot(now,travel=travel))
             context=await self._schedule.context(now); state=await self._store.get_state()
-            await self._schedule.expand_due(now,nodes,state,self._env.weather_text(weather)); context=await self._schedule.context(now)
+            await self._schedule.expand_due(now,nodes,state,travel_weather); context=await self._schedule.context(now)
             last_updated=float(state.get("last_updated_at") or now.timestamp())
             simulation_start=datetime.fromtimestamp(max(last_updated,(now-timedelta(hours=72)).timestamp()),tz=now.tzinfo)
             # 睡前流程先于相位推进：静默刚达标时先更新 defer/回睡，advance 才不会按旧值提前睡过去。
@@ -1166,7 +1174,11 @@ class MaiLifePlugin(MaiBotPlugin):
         bedtime=""
         if not self._is_group_session(session_id) and self._bedtime and self._bedtime.approaching(now):
             bedtime="approaching"
-        return {"state":await self._store.get_state(),"weather":await self._store.get_weather() or {"description":"天气未知"},
+        travel_location=((self._travel_snapshot or {}).get("location") or {})
+        weather_snapshot=await self._store.get_weather() or {"description":"天气未知"}
+        if isinstance(travel_location,dict) and travel_location.get("place"):
+            weather_snapshot={"description":"目的地天气未知"}
+        return {"state":await self._store.get_state(),"weather":weather_snapshot,
                 "context":await self._schedule.context(now),"user":user,"dream":await self._store.latest_dream(),"backlogs":backlogs,
                 "environment":self._env.snapshot(now,platform=str(runtime.get("platform") or "qq"),adapter=str(runtime.get("adapter") or "unknown"),
                                                  chat_type="private",media=runtime.get("media") or ["text"],
