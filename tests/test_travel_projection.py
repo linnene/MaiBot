@@ -304,3 +304,18 @@ class TravelSchoolConflictTests(unittest.TestCase):
         self.assertFalse(any(n['kind'] in {'work','study'} for n in merged))
         for n in merged:
             if '旅行' in n['summary'] and n['kind']=='leisure':self.assertEqual(n['location'],'Tokyo')
+
+
+class TravelPublicApiTests(unittest.IsolatedAsyncioTestCase):
+    async def test_schedule_and_environment_use_the_existing_travel_snapshot(self):
+        from unittest.mock import AsyncMock,Mock
+        from Mai_life.plugin import MaiLifePlugin
+        value=projection('staying')
+        store=SimpleNamespace(get_framework=AsyncMock(return_value=template_nodes()))
+        schedule=SimpleNamespace(_travel_overlay=Mock(return_value=[{'kind':'travel'}]))
+        env=SimpleNamespace(now=lambda:NOW,snapshot=Mock(return_value={}))
+        plugin=SimpleNamespace(_ready=True,_store=store,_schedule=schedule,_env=env,_travel_snapshot=value)
+        result=await MaiLifePlugin.api_get_schedule(plugin)
+        self.assertEqual(result,[{'kind':'travel'}])
+        await MaiLifePlugin.api_get_environment(plugin)
+        self.assertEqual(env.snapshot.call_args.kwargs['travel'],value)

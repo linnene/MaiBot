@@ -2060,7 +2060,9 @@ class MaiLifePlugin(MaiBotPlugin):
     async def api_get_schedule(self,day:str="",**kwargs:Any)->list[dict[str,Any]]:
         if not self._ready:return []
         assert self._store and self._env
-        return await self._store.get_framework(day or self._env.now().date().isoformat())
+        target_day=day or self._env.now().date().isoformat()
+        nodes=await self._store.get_framework(target_day)
+        return self._schedule._travel_overlay(target_day,nodes) if self._schedule else nodes
 
     @API(name="get_user_relationship",description="获取指定用户关系状态",version="1",public=True)
     async def api_get_relationship(self,user_id:str="",**kwargs:Any)->dict[str,Any]:
@@ -2079,7 +2081,7 @@ class MaiLifePlugin(MaiBotPlugin):
     async def api_get_environment(self,platform:str="qq",adapter:str="unknown",chat_type:str="private",media:list[str]|None=None,**kwargs:Any)->dict[str,Any]:
         # None 会被 str() 变成 "None" 字符串，媒介列表必须先过滤再截断。
         clean_media=[str(item)[:40] for item in media if item is not None and str(item).strip()] if isinstance(media,list) else ["text"]
-        return self._env.snapshot(platform=platform,adapter=adapter,chat_type=chat_type,media=clean_media or ["text"]) if self._env else {}
+        return self._env.snapshot(platform=platform,adapter=adapter,chat_type=chat_type,media=clean_media or ["text"],travel=self._travel_snapshot) if self._env else {}
 
     @API(name="create_proactive_opportunity",description="创建外部主动分享契机",version="1",public=True)
     async def api_create_opportunity(self,topic:str="",motive:str="",weight:float=0.5,expires_minutes:int=120,**kwargs:Any)->dict[str,Any]:
