@@ -218,6 +218,23 @@ class VirtualTravelPlugin(MaiBotPlugin):
         now = self._now()
         start = float(as_of) if as_of else now
         finish = float(end) if end else start + 7 * 86_400.0
+        if not self.config.enabled:
+            return {
+                "schema_version": 1,
+                "trip_id": "",
+                "revision": 0,
+                "phase": "none",
+                "valid_from": None,
+                "valid_until": None,
+                "timezone": "",
+                "location": None,
+                "segments": [],
+                "occurred": False,
+                "source_kind": "none",
+                "health": {"state": "disabled", "reason": "feature_disabled"},
+                "next_event": None,
+                "generated_at": now,
+            }
         return await self.build_projection(start, finish)
 
     @API(
@@ -234,6 +251,7 @@ class VirtualTravelPlugin(MaiBotPlugin):
             "items": events,
             "cursor": cursor,
             "export_enabled": bool(self.config.memory_export),
+            "memory_chat_id": self.config.memory_chat_id.strip(),
         }
 
     @API(
@@ -339,43 +357,118 @@ class VirtualTravelPlugin(MaiBotPlugin):
         action = str(action or "status").strip()
         if action == "status":
             return json.dumps(await self.api_status(), ensure_ascii=False)
-        if action == "propose":
-            segments = json.loads(kwargs.get("segments_json") or "[]")
-            trip = await asyncio.to_thread(
-                self.trips.propose,
-                str(kwargs.get("title") or ""),
-                now,
-                str(kwargs.get("destination") or ""),
-                self.config.timezone,
-            )
+        if not self.config.enabled:
+            return json.dumps({"success": False, "error": "travel_disabled"}, ensure_ascii=False)
+        try:
+            if action == "propose":
+                return json.dumps(await self._tool_propose(kwargs, now), ensure_ascii=False)
+            trip_id = str(kwargs.get("trip_id") or "")
+            revision = int(kwargs.get("expected_revision") or 0)
+            if action == "confirm":
+                trip = await asyncio.to_thread(self.trips.confirm, trip_id, revision, now)
+            elif action == "cancel":
+                trip = await asyncio.to_thread(self.trips.cancel, trip_id, revision, now)
+            elif action in {"revise", "postpone"}:
+                trip = await self._tool_revise(action, trip_id, revision, kwargs, now)
+            else:
+                return json.dumps(
+                    {"success": False, "error": f"未知操作: {action}"}, ensure_ascii=False
+                )
+        except (ValueError, KeyError, TypeError) as exc:
+            return json.dumps({"success": False, "error": str(exc)}, ensure_ascii=False)
+        return json.dumps({"success": True, "trip": trip}, ensure_ascii=False)
+
+    async def _tool_propose(self, kwargs: dict[str, Any], now: float) -> dict[str, Any]:
+        """工具提案与内部规划走同一套预算与预留校验。"""
+
+        segments, costs = self.planner._build_segments(
+            json.loads(kwargs.get("segments_json") or "[]"), self.config.timezone
+        )
+        available = await asyncio.to_thread(self.ledger.balance, now)
+        total = sum(costs.values())
+        if total > available["available_fen"]:
+            raise ValueError("over_budget")
+        trip = await asyncio.to_thread(
+            self.trips.propose,
+            str(kwargs.get("title") or ""),
+            now,
+            str(kwargs.get("destination") or ""),
+            self.config.timezone,
+        )
+        reserved: list[str] = []
+        try:
+            for segment in segments:
+                cost = costs.get(segment["segment_id"], 0)
+                if cost <= 0 or segment["kind"] not in {"flight", "train", "hotel"}:
+                    continue
+                key = f"{trip['trip_id']}:{segment['segment_id']}"
+                await asyncio.to_thread(
+                    self.ledger.reserve,
+                    trip["trip_id"],
+                    key,
+                    cost,
+                    segment["start_at"] + 86_400.0,
+                    now,
+                )
+                reserved.append(key)
+                segment["reservation_key"] = key
+                segment["requires_funds"] = True
             trip = await asyncio.to_thread(
                 self.trips.revise, trip["trip_id"], trip["revision"], {"segments": segments}, now
             )
-            return json.dumps({"success": True, "trip": trip}, ensure_ascii=False)
-        trip_id = str(kwargs.get("trip_id") or "")
-        revision = int(kwargs.get("expected_revision") or 0)
-        if action == "confirm":
-            trip = await asyncio.to_thread(self.trips.confirm, trip_id, revision, now)
-        elif action == "cancel":
-            trip = await asyncio.to_thread(self.trips.cancel, trip_id, revision, now)
-        elif action == "revise":
-            segments = json.loads(kwargs.get("segments_json") or "[]")
-            trip = await asyncio.to_thread(
-                self.trips.revise, trip_id, revision, {"segments": segments}, now
-            )
-        elif action == "postpone":
+        except Exception as exc:
+            for key in reserved:
+                try:
+                    await asyncio.to_thread(self.ledger.release, key, now)
+                except ValueError:
+                    continue
+            current = await asyncio.to_thread(self.trips.get, trip["trip_id"])
+            await asyncio.to_thread(self.trips.cancel, trip["trip_id"], current["revision"], now)
+            raise ValueError(str(exc)) from exc
+        return {"success": True, "trip": trip}
+
+    async def _tool_revise(
+        self,
+        action: str,
+        trip_id: str,
+        revision: int,
+        kwargs: dict[str, Any],
+        now: float,
+    ) -> dict[str, Any]:
+        current = await asyncio.to_thread(self.trips.get, trip_id)
+        segments, costs = self.planner._build_segments(
+            json.loads(kwargs.get("segments_json") or json.dumps(current["segments"])),
+            current["timezone"],
+        )
+        if action == "postpone":
             shift = float(kwargs.get("shift_seconds") or 0)
-            current = await asyncio.to_thread(self.trips.get, trip_id)
-            segments = [dict(item) for item in current["segments"]]
+            if shift <= 0:
+                raise ValueError("invalid_shift")
             for item in segments:
                 item["start_at"] = float(item["start_at"]) + shift
                 item["end_at"] = float(item["end_at"]) + shift
-            trip = await asyncio.to_thread(
-                self.trips.revise, trip_id, revision, {"segments": segments}, now
-            )
-        else:
-            return json.dumps({"success": False, "error": f"未知操作: {action}"}, ensure_ascii=False)
-        return json.dumps({"success": True, "trip": trip}, ensure_ascii=False)
+        releases = self.planner._carry_reservations(current, segments, costs, now)
+        trip = await asyncio.to_thread(
+            self.trips.revise, trip_id, revision, {"segments": segments}, now
+        )
+        for key in releases:
+            try:
+                await asyncio.to_thread(self.ledger.release, key, now)
+            except ValueError:
+                continue
+        if action == "postpone":
+            for item in trip["segments"]:
+                if item["reservation_key"] and not item["settled"]:
+                    try:
+                        await asyncio.to_thread(
+                            self.ledger.extend,
+                            item["reservation_key"],
+                            float(item["start_at"]) + 86_400.0,
+                            now,
+                        )
+                    except ValueError:
+                        continue
+        return trip
 
 
 def create_plugin() -> VirtualTravelPlugin:

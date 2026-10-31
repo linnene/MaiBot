@@ -117,7 +117,15 @@ class PluginTests(unittest.IsolatedAsyncioTestCase):
             "from_place": "Shanghai",
             "to_place": "Tokyo",
             "phase": "in_transit",
+            "reservation_key": "flight",
+            "requires_funds": True,
         }
+        await asyncio.to_thread(
+            plugin.ledger.credit_month, "2026-10", 20_000, now
+        )
+        await asyncio.to_thread(
+            plugin.ledger.reserve, trip["trip_id"], "flight", 500_000, now + 86_400.0, now
+        )
         trip = await asyncio.to_thread(
             plugin.trips.revise, trip["trip_id"], trip["revision"], {"segments": [segment]}, now
         )
@@ -138,6 +146,21 @@ class PluginTests(unittest.IsolatedAsyncioTestCase):
         payload = json.loads(await self.plugin.travel_plan("status"))
         self.assertIn("balance", payload)
         self.assertFalse(hasattr(self.plugin.ctx, "send"))
+
+    async def test_disabled_plugin_does_not_serve_or_mutate_travel(self) -> None:
+        await self.plugin.on_load()
+        projection = await self.plugin.api_get_travel_projection()
+        self.assertEqual(projection["phase"], "none")
+        self.assertEqual(projection["health"]["state"], "disabled")
+        payload = json.loads(await self.plugin.travel_plan("propose", title="东京"))
+        self.assertFalse(payload["success"])
+        self.assertEqual(payload["error"], "travel_disabled")
+        self.assertIsNone(await asyncio.to_thread(self.plugin.trips.active_trip))
+
+    async def test_manifest_declares_cross_plugin_api_capability(self) -> None:
+        manifest = json.loads((ROOT / "_manifest.json").read_text(encoding="utf-8"))
+        self.assertIn("api.call", manifest["capabilities"])
+        self.assertIn("llm.generate", manifest["capabilities"])
 
 
 if __name__ == "__main__":

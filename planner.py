@@ -252,13 +252,19 @@ class Planner:
                 return {"action": "cancel", "applied": True, "trip": updated}
             if action == "revise":
                 # 模型给出的是带时区的 ISO 时间；先转成领域层的 epoch 与校验字段。
-                segments, _costs = self._build_segments(
+                segments, costs = self._build_segments(
                     decision.get("segments") or [], str(trip["timezone"])
                 )
-                self._carry_reservations(trip, segments, now)
+                releases = self._carry_reservations(trip, segments, costs, now)
                 updated = self.trips.revise(
                     trip["trip_id"], int(trip["revision"]), {"segments": segments}, now
                 )
+                # 只有改期真正落库后才释放被移除段的预留，避免失败时资金悬空。
+                for key in releases:
+                    try:
+                        self.ledger.release(key, now)
+                    except ValueError:
+                        continue
                 return {"action": "revise", "applied": True, "trip": updated}
             if action == "postpone":
                 return self._postpone(decision, snapshot, now)
@@ -333,25 +339,46 @@ class Planner:
         self,
         trip: dict[str, Any],
         segments: list[dict[str, Any]],
+        costs: dict[str, int],
         now: float,
-    ) -> None:
-        """改期保留同段预留；被移除的行程段释放预留，避免资金被永久占住。"""
+    ) -> list[str]:
+        """改期保留同段预留、为新硬段预留；返回待释放的旧预留键。
+
+        释放由调用方在改期成功提交后执行，避免改期失败时资金悬空。
+        """
 
         existing = {item["segment_id"]: item for item in trip.get("segments") or []}
         new_ids = {item["segment_id"] for item in segments}
-        for segment in segments:
-            old = existing.get(segment["segment_id"])
-            if old and old.get("reservation_key"):
-                segment["reservation_key"] = old["reservation_key"]
+        created: list[str] = []
+        try:
+            for segment in segments:
+                old = existing.get(segment["segment_id"])
+                if old and old.get("reservation_key"):
+                    segment["reservation_key"] = old["reservation_key"]
+                    segment["requires_funds"] = True
+                    continue
+                cost = costs.get(segment["segment_id"], 0)
+                if segment["kind"] not in _HARD_KINDS or cost <= 0:
+                    continue
+                key = f"{trip['trip_id']}:{segment['segment_id']}"
+                self.ledger.reserve(
+                    trip["trip_id"], key, cost, segment["start_at"] + 86_400.0, now
+                )
+                created.append(key)
+                segment["reservation_key"] = key
                 segment["requires_funds"] = True
-        for segment_id, old in existing.items():
-            if segment_id in new_ids or not old.get("reservation_key"):
-                continue
-            try:
-                self.ledger.release(old["reservation_key"], now)
-            except ValueError:
-                # 已结算的预留不能释放；保留账目，不吞掉真实支出。
-                continue
+        except Exception:
+            for key in created:
+                try:
+                    self.ledger.release(key, now)
+                except ValueError:
+                    continue
+            raise
+        return [
+            old["reservation_key"]
+            for segment_id, old in existing.items()
+            if segment_id not in new_ids and old.get("reservation_key")
+        ]
 
     def _postpone(
         self,
@@ -373,6 +400,15 @@ class Planner:
         updated = self.trips.revise(
             trip["trip_id"], int(trip["revision"]), {"segments": segments}, now
         )
+        # 改期后同步延长预留，否则新时间晚于原到期时会无法结算。
+        for item in updated["segments"]:
+            if item["reservation_key"] and not item["settled"]:
+                try:
+                    self.ledger.extend(
+                        item["reservation_key"], float(item["start_at"]) + 86_400.0, now
+                    )
+                except ValueError:
+                    continue
         return {"action": "postpone", "applied": True, "trip": updated}
 
     @staticmethod
@@ -394,10 +430,15 @@ class Planner:
             timezone = str(raw.get("timezone") or default_timezone).strip()
             ZoneInfo(timezone)
             try:
-                start_at = datetime.fromisoformat(str(raw["start_iso"])).timestamp()
-                end_at = datetime.fromisoformat(str(raw["end_iso"])).timestamp()
+                start_value = datetime.fromisoformat(str(raw["start_iso"]))
+                end_value = datetime.fromisoformat(str(raw["end_iso"]))
             except (KeyError, TypeError, ValueError) as exc:
                 raise ValueError(f"segments[{index}] 缺少有效的起止时间") from exc
+            # 没有偏移量的时间会被按服务器本地时区解释，必须明确拒绝。
+            if start_value.tzinfo is None or end_value.tzinfo is None:
+                raise ValueError(f"segments[{index}] 起止时间必须带时区偏移")
+            start_at = start_value.timestamp()
+            end_at = end_value.timestamp()
             if end_at <= start_at:
                 raise ValueError(f"segments[{index}] 结束时间必须晚于开始时间")
             cost_yuan = raw.get("cost_yuan", 0)
@@ -419,7 +460,7 @@ class Planner:
                     "to_place": str(raw.get("to_place") or ""),
                     "phase": phase,
                     "reservation_key": "",
-                    "requires_funds": False,
+                    "requires_funds": kind in _HARD_KINDS,
                 }
             )
             costs[segment_id] = cost_fen if kind in _HARD_KINDS else 0

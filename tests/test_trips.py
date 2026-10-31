@@ -68,8 +68,10 @@ class TripTestCase(unittest.TestCase):
     def make_confirmed(self, start_at: float, segments: list[dict], reservation_fen: int = 500_000) -> dict:
         trip = self.trips.propose("东京秋日", NOW, destination="Tokyo", timezone="Asia/Tokyo")
         for item in segments:
-            if item["requires_funds"]:
+            # 机票/火车/酒店属于硬行程，确认前必须有有效预留。
+            if item["kind"] in {"flight", "train", "hotel"}:
                 item["reservation_key"] = item["segment_id"]
+                item["requires_funds"] = True
                 self.ledger.reserve(trip["trip_id"], item["segment_id"], reservation_fen, item["start_at"] + DAY, NOW)
         trip = self.trips.revise(trip["trip_id"], trip["revision"], {"segments": segments}, NOW)
         return self.trips.confirm(trip["trip_id"], trip["revision"], NOW)
@@ -138,6 +140,32 @@ class LifecycleTests(TripTestCase):
         self.assertIsNone(self.trips.active_trip())
         self.trips.propose("大阪", NOW + 2)
 
+    def test_unconfirmed_trip_never_becomes_experience(self) -> None:
+        trip = self.trips.propose("北海道", NOW, destination="Sapporo", timezone="Asia/Tokyo")
+        item = segment("flight", NOW + 3600, NOW + 7200)
+        self.trips.revise(trip["trip_id"], trip["revision"], {"segments": [item]}, NOW)
+        self.assertEqual(self.trips.advance(NOW + 7200), [])
+        projection = self.trips.projection(NOW + 7200, NOW + 9000)
+        self.assertFalse(projection["occurred"])
+        self.assertEqual(projection["source_kind"], "plan")
+
+    def test_cancel_releases_unsettled_reservation(self) -> None:
+        trip = self.make_confirmed(
+            NOW + DAY, [segment("flight", NOW + DAY, NOW + 2 * DAY, requires_funds=True)]
+        )
+        self.assertEqual(self.ledger.balance(NOW)["reserved_fen"], 500_000)
+        self.trips.cancel(trip["trip_id"], trip["revision"], NOW + 1)
+        self.assertEqual(self.ledger.balance(NOW + 1)["reserved_fen"], 0)
+
+    def test_confirm_rejects_expired_reservation(self) -> None:
+        trip = self.trips.propose("东京", NOW, destination="Tokyo", timezone="Asia/Tokyo")
+        self.ledger.reserve(trip["trip_id"], "flight", 500_000, NOW + 10, NOW)
+        item = segment("flight", NOW + DAY, NOW + 2 * DAY, requires_funds=True)
+        item["reservation_key"] = "flight"
+        trip = self.trips.revise(trip["trip_id"], trip["revision"], {"segments": [item]}, NOW)
+        with self.assertRaises(MissingReservation):
+            self.trips.confirm(trip["trip_id"], trip["revision"], NOW + 100)
+
 
 class AdvanceTests(TripTestCase):
     def setUp(self) -> None:
@@ -173,7 +201,8 @@ class AdvanceTests(TripTestCase):
         self.assertEqual(events[0]["segment_id"], "flight")
         snapshot = self.ledger.balance(self.start + 60)
         self.assertEqual(snapshot["spent_fen"], 500_000)
-        self.assertEqual(snapshot["reserved_fen"], 0)
+        # 酒店预留仍未到期，继续占用余额。
+        self.assertEqual(snapshot["reserved_fen"], 500_000)
 
         again = self.trips.advance(self.start + 120)
         self.assertEqual(again, [])

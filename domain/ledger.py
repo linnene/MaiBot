@@ -267,6 +267,29 @@ class Ledger:
 
         return self.db.transaction(operation)
 
+    def extend(self, key: str, expires_at: float, now: float | None = None) -> dict[str, Any]:
+        """改期时延长预留有效期；已结算或已释放的预留保持不变。"""
+
+        stamp = time.time() if now is None else now
+
+        def operation(connection: sqlite3.Connection) -> dict[str, Any]:
+            row = connection.execute("SELECT * FROM reservations WHERE key = ?", (key,)).fetchone()
+            if row is None:
+                raise ValueError(f"预留不存在: {key}")
+            if row["state"] == "reserved" and expires_at > float(row["expires_at"]):
+                if expires_at <= stamp:
+                    raise ValueError("新的预留到期时间必须晚于当前时间")
+                connection.execute(
+                    "UPDATE reservations SET expires_at = ? WHERE key = ?",
+                    (expires_at, key),
+                )
+            updated = connection.execute(
+                "SELECT * FROM reservations WHERE key = ?", (key,)
+            ).fetchone()
+            return dict(updated)
+
+        return self.db.transaction(operation)
+
     # ---------------------------------------------------------------- 退款
 
     def refund(

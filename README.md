@@ -26,6 +26,7 @@
 | `auto_share` | `false` | 是否允许向白名单群主动发布游记 |
 | `publish_whitelist` | `[]` | 允许发布游记的真实群会话 |
 | `memory_export` | `false` | 是否把已发生经历导出为长期记忆 |
+| `memory_chat_id` | `""` | 导出记忆所属的真实私聊流；为空时不导出 |
 
 ## 测试
 

@@ -52,7 +52,10 @@ class PublishingTests(unittest.TestCase):
             "from_place": "Shanghai",
             "to_place": "Tokyo",
             "phase": "in_transit",
+            "reservation_key": "flight",
+            "requires_funds": True,
         }
+        self.ledger.reserve(trip["trip_id"], "flight", 500_000, NOW + 86_400.0, NOW)
         trip = self.trips.revise(trip["trip_id"], trip["revision"], {"segments": [segment]}, NOW)
         self.trips.confirm(trip["trip_id"], trip["revision"], NOW)
         events = self.trips.advance(NOW)
@@ -82,6 +85,17 @@ class PublishingTests(unittest.TestCase):
         queued = self.queue()
         self.assertTrue(queued["queued"])
         self.assertTrue(self.publishing.before_send(queued["token"], NOW + 1)["allowed"])
+
+    def test_same_event_and_group_queue_one_item(self) -> None:
+        first = self.queue()
+        second = self.publishing.propose(self.event_id, GROUP, NOW + 10)
+        self.assertEqual(first["token"], second["token"])
+        count = self.ledger.db.read(
+            lambda connection: connection.execute(
+                "SELECT COUNT(*) AS total FROM publish_queue"
+            ).fetchone()["total"]
+        )
+        self.assertEqual(count, 1)
 
     def test_leaving_whitelist_cancels_queued_item(self) -> None:
         queued = self.queue()

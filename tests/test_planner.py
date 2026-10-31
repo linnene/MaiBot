@@ -176,6 +176,35 @@ class PlannerTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result["action"], "rejected")
         self.assertIsNone(self.trips.active_trip())
 
+    async def test_rejected_revision_does_not_release_reservation(self) -> None:
+        planner = self.make_planner(self.proposal(cost_yuan=5_000))
+        await planner.consider(self.snapshot({"kind": "opportunity"}), NOW, "2026-10-15")
+        trip = self.trips.active_trip()
+        decision = {
+            "action": "revise",
+            "expected_revision": trip["revision"],
+            "segments": [
+                {
+                    "segment_id": "hotel",
+                    "kind": "hotel",
+                    "title": "酒店",
+                    "start_iso": iso(NOW + 2 * DAY),
+                    "end_iso": iso(NOW + 3 * DAY),
+                    "timezone": TOKYO,
+                    "phase": "staying",
+                    "cost_yuan": 0,
+                }
+            ],
+        }
+        revised_planner = self.make_planner(decision)
+        result = await revised_planner.consider(
+            self.snapshot({"kind": "opportunity"}), NOW, "2026-10-15"
+        )
+        self.assertFalse(result["applied"])
+        self.assertIn("预留", result["reason"])
+        self.assertEqual(self.ledger.balance(NOW)["reserved_fen"], 500_000)
+        self.assertEqual(self.trips.active_trip()["segments"][0]["segment_id"], "flight")
+
     async def test_stale_revision_cancel_is_rejected(self) -> None:
         trip = self.trips.propose("东京", NOW, destination="Tokyo", timezone=TOKYO)
         self.trips.revise(trip["trip_id"], trip["revision"], {"title": "东京秋日"}, NOW + 1)

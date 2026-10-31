@@ -55,7 +55,7 @@ class Publishing:
             if trip is None or trip["status"] == "cancelled":
                 return {"queued": False, "reason": "trip_cancelled"}
             token = hashlib.sha1(
-                f"{event_id}:{group_session}:{trip['revision']}:{now}".encode()
+                f"{event_id}:{group_session}:{trip['revision']}".encode()
             ).hexdigest()[:20]
             existing = connection.execute(
                 "SELECT * FROM publish_queue WHERE token = ?", (token,)
@@ -106,6 +106,9 @@ class Publishing:
             if row is None:
                 return {"updated": False, "reason": "unknown_token"}
             if row["status"] == "sent":
+                return dict(row)
+            if row["status"] != "queued":
+                # 已作废或未知的发送项不能靠事后回执重新变成已发送。
                 return dict(row)
             delivered = _has_receipt(receipt)
             status = "sent" if delivered else "unknown"

@@ -40,3 +40,7 @@ class TravelConfig(PluginConfigBase):
     memory_export: bool = Field(
         default=False, description="是否把已发生的旅行经历导出为长期记忆；默认关闭"
     )
+    memory_chat_id: str = Field(
+        default="",
+        description="导出记忆所属的真实私聊流 ID；为空时不导出，避免写进无法召回的孤立会话",
+    )

@@ -142,6 +142,28 @@ class TripService:
             if "segments" in patch:
                 parsed = self._parse_segments(trip_id, patch["segments"])
                 self._validate_segments(parsed)
+                if row["status"] in {"confirmed", "preparing"}:
+                    # 已确认行程新增硬段必须先有有效预留，改期不能绕过预算检查。
+                    for item in parsed:
+                        if not item["requires_funds"]:
+                            continue
+                        key = item["reservation_key"]
+                        reservation = (
+                            connection.execute(
+                                "SELECT state, expires_at FROM reservations WHERE key = ?",
+                                (key,),
+                            ).fetchone()
+                            if key
+                            else None
+                        )
+                        if (
+                            reservation is None
+                            or reservation["state"] != "reserved"
+                            or float(reservation["expires_at"]) <= now
+                        ):
+                            raise MissingReservation(
+                                f"行程段缺少有效资金预留: {item['segment_id']}"
+                            )
                 connection.execute("DELETE FROM trip_segments WHERE trip_id = ?", (trip_id,))
                 for ordinal, item in enumerate(parsed):
                     connection.execute(
@@ -199,7 +221,7 @@ class TripService:
                 key = item["reservation_key"]
                 if not key:
                     raise MissingReservation(f"行程段缺少资金预留: {item['segment_id']}")
-                if not self._reservation_valid(key):
+                if not self._reservation_valid(key, now):
                     raise MissingReservation(f"资金预留不存在或已失效: {key}")
             connection.execute(
                 "UPDATE trips SET status = 'confirmed', confirmed_at = ?, updated_at = ?, "
@@ -215,6 +237,8 @@ class TripService:
 
     def cancel(self, trip_id: str, expected_revision: int, now: float) -> dict[str, Any]:
         """取消行程；已结束的行程不能取消。"""
+
+        releases: list[str] = []
 
         def operation(connection: sqlite3.Connection) -> dict[str, Any]:
             row = connection.execute("SELECT * FROM trips WHERE trip_id = ?", (trip_id,)).fetchone()
@@ -234,9 +258,22 @@ class TripService:
             updated = connection.execute(
                 "SELECT * FROM trips WHERE trip_id = ?", (trip_id,)
             ).fetchone()
-            return self._serialize(connection, updated)
+            cancelled = self._serialize(connection, updated)
+            releases.extend(
+                item["reservation_key"]
+                for item in cancelled["segments"]
+                if item["reservation_key"] and not item["settled"]
+            )
+            return cancelled
 
-        return self.db.transaction(operation)
+        result = self.db.transaction(operation)
+        # 取消后释放未结算预留，避免资金被占住到原出发日。
+        for key in releases:
+            try:
+                self.ledger.release(key, now)
+            except ValueError:
+                continue
+        return result
 
     # ---------------------------------------------------------------- 推进
 
@@ -247,7 +284,8 @@ class TripService:
 
         def operation(connection: sqlite3.Connection) -> list[dict[str, Any]]:
             rows = connection.execute(
-                "SELECT * FROM trips WHERE active = 1 AND status != 'cancelled'"
+                "SELECT * FROM trips WHERE active = 1 AND status IN "
+                "('confirmed', 'preparing', 'in_transit', 'staying', 'returning')"
             ).fetchall()
             recorded: list[dict[str, Any]] = []
             for row in rows:
@@ -303,6 +341,8 @@ class TripService:
                 else:
                     current = active_segment(segments, now)
                     status = current["phase"] if current is not None else row["status"]
+                    if status == "free":
+                        status = "staying"
                     if status not in {"idea", "research", "draft"}:
                         connection.execute(
                             "UPDATE trips SET status = ?, updated_at = ? WHERE trip_id = ?",
@@ -313,7 +353,11 @@ class TripService:
         recorded = self.db.transaction(operation)
         for trip_id, segment_id, reservation_key, logical_at in settlements:
             if self.ledger is not None:
-                self.ledger.settle(reservation_key, now=max(logical_at, 0.0))
+                try:
+                    self.ledger.settle(reservation_key, now=max(logical_at, 0.0))
+                except ValueError:
+                    # 单条预留失效不能卡住整轮推进；保持未结算，账本不凭空扣款。
+                    continue
             self.db.transaction(
                 lambda connection: connection.execute(
                     "UPDATE trip_segments SET settled = 1 "
@@ -350,13 +394,14 @@ class TripService:
             segments = self._load_segments(connection, trip_id)
             window = overlapping(segments, as_of, end)
             phase = self._phase_at(connection, row, segments, as_of)
-            occurred = (
-                connection.execute(
-                    "SELECT 1 FROM trip_events WHERE trip_id = ? AND at <= ? LIMIT 1",
+            occurred_segments = {
+                event["segment_id"]
+                for event in connection.execute(
+                    "SELECT segment_id FROM trip_events WHERE trip_id = ? AND at <= ?",
                     (trip_id, as_of),
-                ).fetchone()
-                is not None
-            )
+                ).fetchall()
+            }
+            occurred = bool(occurred_segments)
             next_event = None
             for item in segments:
                 if item["start_at"] > as_of:
@@ -388,7 +433,9 @@ class TripService:
                         "from_place": item["from_place"],
                         "to_place": item["to_place"],
                         "phase": item["phase"],
-                        "source_kind": "plan" if item["start_at"] > as_of else "virtual_self_event",
+                        "source_kind": "virtual_self_event"
+                        if item["segment_id"] in occurred_segments
+                        else "plan",
                     }
                     for item in window
                 ],
@@ -490,7 +537,7 @@ class TripService:
             return None
         current = active_segment(segments, as_of)
         if current is not None:
-            place = current["to_place"] if current["phase"] in {"staying", "returning"} else current["from_place"]
+            place = current["to_place"] if current["phase"] == "staying" else current["from_place"]
             return {
                 "place": place,
                 "from_place": current["from_place"],
@@ -550,7 +597,11 @@ class TripService:
                     "to_place": str(raw.get("to_place") or "").strip(),
                     "phase": phase,
                     "reservation_key": str(raw.get("reservation_key") or "").strip(),
-                    "requires_funds": bool(raw.get("requires_funds")),
+                    "requires_funds": bool(raw.get("requires_funds")) or kind in {
+                        "flight",
+                        "train",
+                        "hotel",
+                    },
                 }
             )
         return parsed
@@ -566,14 +617,18 @@ class TripService:
                 raise ValueError(f"行程段时间重叠: {item['segment_id']}")
             previous_end = item["end_at"]
 
-    def _reservation_valid(self, key: str) -> bool:
+    def _reservation_valid(self, key: str, now: float) -> bool:
         if self.ledger is None:
             return False
 
         def operation(connection: sqlite3.Connection) -> bool:
             row = connection.execute(
-                "SELECT state FROM reservations WHERE key = ?", (key,)
+                "SELECT state, expires_at FROM reservations WHERE key = ?", (key,)
             ).fetchone()
-            return row is not None and row["state"] in {"reserved"}
+            return (
+                row is not None
+                and row["state"] == "reserved"
+                and float(row["expires_at"]) > now
+            )
 
         return self.ledger.db.read(operation)

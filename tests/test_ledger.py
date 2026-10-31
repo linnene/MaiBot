@@ -151,6 +151,12 @@ class LedgerSpendingTests(unittest.TestCase):
         with self.assertRaises(ReservationExpired):
             self.ledger.settle("flight", NOW + DAY + 1)
 
+    def test_extend_allows_settlement_after_postponement(self) -> None:
+        self.ledger.reserve("trip-1", "flight", 500_000, NOW + DAY, NOW)
+        self.ledger.extend("flight", NOW + 5 * DAY, NOW)
+        settled = self.ledger.settle("flight", NOW + 4 * DAY)
+        self.assertEqual(settled["state"], "settled")
+
     def test_release_restores_available_and_is_idempotent(self) -> None:
         self.ledger.reserve("trip-1", "hotel", 300_000, NOW + DAY, NOW)
         first = self.ledger.release("hotel", NOW + 5)
