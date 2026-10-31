@@ -47,6 +47,60 @@ CREATE TABLE IF NOT EXISTS ledger_entries (
 );
 CREATE INDEX IF NOT EXISTS idx_ledger_entries_source
     ON ledger_entries (source_payment_key);
+CREATE TABLE IF NOT EXISTS trips (
+    trip_id TEXT PRIMARY KEY,
+    revision INTEGER NOT NULL,
+    status TEXT NOT NULL,
+    title TEXT NOT NULL,
+    destination TEXT NOT NULL DEFAULT '',
+    timezone TEXT NOT NULL,
+    created_at REAL NOT NULL,
+    updated_at REAL NOT NULL,
+    confirmed_at REAL,
+    cancelled_at REAL,
+    active INTEGER NOT NULL DEFAULT 1
+);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_trips_one_active
+    ON trips (active) WHERE active = 1;
+CREATE TABLE IF NOT EXISTS trip_segments (
+    trip_id TEXT NOT NULL,
+    segment_id TEXT NOT NULL,
+    ordinal INTEGER NOT NULL,
+    kind TEXT NOT NULL,
+    title TEXT NOT NULL,
+    start_at REAL NOT NULL,
+    end_at REAL NOT NULL,
+    timezone TEXT NOT NULL,
+    from_place TEXT NOT NULL DEFAULT '',
+    to_place TEXT NOT NULL DEFAULT '',
+    phase TEXT NOT NULL,
+    reservation_key TEXT NOT NULL DEFAULT '',
+    requires_funds INTEGER NOT NULL DEFAULT 0,
+    settled INTEGER NOT NULL DEFAULT 0,
+    PRIMARY KEY (trip_id, segment_id)
+);
+CREATE INDEX IF NOT EXISTS idx_trip_segments_time
+    ON trip_segments (trip_id, start_at);
+CREATE TABLE IF NOT EXISTS trip_events (
+    event_id TEXT PRIMARY KEY,
+    trip_id TEXT NOT NULL,
+    segment_id TEXT NOT NULL,
+    kind TEXT NOT NULL,
+    at REAL NOT NULL,
+    timezone TEXT NOT NULL,
+    summary TEXT NOT NULL,
+    source_kind TEXT NOT NULL DEFAULT 'virtual_self_event',
+    occurred_at REAL NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_trip_events_time
+    ON trip_events (trip_id, at);
+CREATE TABLE IF NOT EXISTS opportunities (
+    month TEXT PRIMARY KEY,
+    at REAL NOT NULL,
+    created_at REAL NOT NULL,
+    handled_at REAL,
+    outcome TEXT
+);
 """
 
 SCHEMA_VERSION = "1"
