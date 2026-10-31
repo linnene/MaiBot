@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from maibot_sdk import Field, PluginConfigBase
 
-from domain.ledger import MONTHLY_MAX_YUAN, MONTHLY_MIN_YUAN
+from .domain.ledger import MONTHLY_MAX_YUAN, MONTHLY_MIN_YUAN
 
 
 class PluginSection(PluginConfigBase):

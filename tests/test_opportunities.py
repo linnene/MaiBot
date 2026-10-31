@@ -15,7 +15,8 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from domain.opportunities import OpportunityService  # noqa: E402
+from tests import bootstrap  # noqa: E402,F401
+from _virtual_travel_test_pkg.domain.opportunities import OpportunityService  # noqa: E402
 
 NOW = datetime(2026, 10, 15, 12, 0, tzinfo=ZoneInfo("Asia/Shanghai")).timestamp()
 

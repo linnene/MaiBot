@@ -12,9 +12,10 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from domain.ledger import Ledger  # noqa: E402
-from domain.trips import TripService  # noqa: E402
-from publishing import Publishing  # noqa: E402
+from tests import bootstrap  # noqa: E402,F401
+from _virtual_travel_test_pkg.domain.ledger import Ledger  # noqa: E402
+from _virtual_travel_test_pkg.domain.trips import TripService  # noqa: E402
+from _virtual_travel_test_pkg.publishing import Publishing  # noqa: E402
 
 NOW = 1_900_000_000.0
 GROUP = "qq-group:12345"

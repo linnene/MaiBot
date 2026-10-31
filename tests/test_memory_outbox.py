@@ -12,8 +12,9 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from memory_outbox import MemoryOutbox  # noqa: E402
-from storage import Database  # noqa: E402
+from tests import bootstrap  # noqa: E402,F401
+from _virtual_travel_test_pkg.memory_outbox import MemoryOutbox  # noqa: E402
+from _virtual_travel_test_pkg.storage import Database  # noqa: E402
 
 NOW = 1_900_000_000.0
 

@@ -10,8 +10,8 @@ from zoneinfo import ZoneInfo
 
 import sqlite3
 
-from domain.clock import active_segment, overlapping
-from storage import Database
+from .clock import active_segment, overlapping
+from ..storage import Database
 
 TERMINAL_STATUSES = {"completed", "cancelled"}
 REVISABLE_STATUSES = {"idea", "research", "draft", "confirmed", "preparing"}
@@ -280,8 +280,6 @@ class TripService:
     def advance(self, now: float) -> list[dict[str, Any]]:
         """推进所有已到时间边界；只记录已确定的行程段，不虚构细节。"""
 
-        settlements: list[tuple[str, str, str, float]] = []
-
         def operation(connection: sqlite3.Connection) -> list[dict[str, Any]]:
             rows = connection.execute(
                 "SELECT * FROM trips WHERE active = 1 AND status IN "
@@ -296,6 +294,11 @@ class TripService:
                 for item in segments:
                     if item["start_at"] > now:
                         continue
+                    if item["reservation_key"] and not item["settled"]:
+                        if self.ledger is None:
+                            raise MissingReservation("Ledger required for funded travel")
+                        self.ledger.settle_in(connection, item["reservation_key"], max(item["start_at"], 0.0))
+                        connection.execute("UPDATE trip_segments SET settled=1 WHERE trip_id=? AND segment_id=?", (trip_id,item["segment_id"]))
                     event_id = f"{trip_id}:{item['segment_id']}:start"
                     cursor = connection.execute(
                         "INSERT OR IGNORE INTO trip_events "
@@ -326,11 +329,6 @@ class TripService:
                                 "source_kind": "virtual_self_event",
                             }
                         )
-                    if item["reservation_key"] and not item["settled"]:
-                        # 结算放到行程事务提交之后，避免同一 SQLite 文件自锁。
-                        settlements.append(
-                            (trip_id, item["segment_id"], item["reservation_key"], item["start_at"])
-                        )
                 last_end = max(item["end_at"] for item in segments)
                 if now >= last_end:
                     connection.execute(
@@ -350,22 +348,7 @@ class TripService:
                         )
             return recorded
 
-        recorded = self.db.transaction(operation)
-        for trip_id, segment_id, reservation_key, logical_at in settlements:
-            if self.ledger is not None:
-                try:
-                    self.ledger.settle(reservation_key, now=max(logical_at, 0.0))
-                except ValueError:
-                    # 单条预留失效不能卡住整轮推进；保持未结算，账本不凭空扣款。
-                    continue
-            self.db.transaction(
-                lambda connection: connection.execute(
-                    "UPDATE trip_segments SET settled = 1 "
-                    "WHERE trip_id = ? AND segment_id = ?",
-                    (trip_id, segment_id),
-                )
-            )
-        return recorded
+        return self.db.transaction(operation)
 
     # ---------------------------------------------------------------- 投影
 
@@ -514,8 +497,8 @@ class TripService:
         segments: list[dict[str, Any]],
         as_of: float,
     ) -> str:
-        if row["status"] == "cancelled":
-            return "cancelled"
+        if row["status"] in {"idea", "research", "draft", "cancelled"}:
+            return row["status"]
         current = active_segment(segments, as_of)
         if current is not None:
             return current["phase"]
@@ -524,7 +507,9 @@ class TripService:
         first_start = min(item["start_at"] for item in segments)
         if as_of < first_start:
             return row["status"]
-        return "completed"
+        if as_of >= max(item["end_at"] for item in segments):
+            return "completed"
+        return "staying"
 
     @staticmethod
     def _location_at(
@@ -545,6 +530,10 @@ class TripService:
                 "timezone": current["timezone"],
                 "phase": current["phase"],
             }
+        previous = [item for item in segments if item["end_at"] <= as_of]
+        if previous:
+            last = max(previous, key=lambda item: item["end_at"])
+            return {"place": last["to_place"] or last["from_place"], "from_place": last["from_place"], "to_place": last["to_place"], "timezone": last["timezone"] or trip_timezone, "phase": phase}
         if segments and as_of < min(item["start_at"] for item in segments):
             first = min(segments, key=lambda item: item["start_at"])
             return {

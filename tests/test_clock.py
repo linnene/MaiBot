@@ -13,7 +13,8 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from domain.clock import active_segment, local_date, local_iso, month_bounds, overlapping  # noqa: E402
+from tests import bootstrap  # noqa: E402,F401
+from _virtual_travel_test_pkg.domain.clock import active_segment, local_date, local_iso, month_bounds, overlapping  # noqa: E402
 
 
 def epoch(year: int, month: int, day: int, hour: int = 0, minute: int = 0, tz: str = "UTC") -> float:

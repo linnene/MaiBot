@@ -15,14 +15,14 @@ from zoneinfo import ZoneInfo
 from maibot_sdk import API, MaiBotPlugin, Tool
 from maibot_sdk.types import ToolParameterInfo
 
-from config import TravelConfig
-from domain.clock import local_date
-from domain.ledger import Ledger
-from domain.opportunities import OpportunityService
-from domain.trips import TripService
-from memory_outbox import MemoryOutbox
-from planner import DecisionBudget, Planner, ResearchClient
-from publishing import Publishing
+from .config import TravelConfig
+from .domain.clock import local_date
+from .domain.ledger import Ledger
+from .domain.opportunities import OpportunityService
+from .domain.trips import TripService
+from .memory_outbox import MemoryOutbox
+from .planner import DecisionBudget, Planner, ResearchClient
+from .publishing import Publishing
 
 
 class VirtualTravelPlugin(MaiBotPlugin):
@@ -108,12 +108,23 @@ class VirtualTravelPlugin(MaiBotPlugin):
             opportunity = due[0]
             if self._in_quiet_window(now):
                 return
-            result = await self._consider(now)
+            retry_key = "opportunity_retry:" + opportunity["month"]
+            retry_at = float(await asyncio.to_thread(self._get_meta, retry_key) or 0)
+            if retry_at > now:
+                return
+            try:
+                result = await self._consider(now)
+            except asyncio.CancelledError:
+                raise
+            except Exception as exc:
+                result = {"action": "rejected", "reason": type(exc).__name__, "applied": False}
             self._last_decision = result
             outcome = str(result.get("action") or "considered")
-            await asyncio.to_thread(
-                self.opportunities.mark_handled, opportunity["month"], outcome, now
-            )
+            if result.get("applied") or outcome == "none":
+                await asyncio.to_thread(self.opportunities.mark_handled, opportunity["month"], outcome, now)
+            else:
+                # An unavailable/invalid model result is not her decision to abandon this month's opportunity.
+                await asyncio.to_thread(self._set_meta, retry_key, str(now + 3600))
 
     async def _consider(self, now: float) -> dict[str, Any]:
         trip = await asyncio.to_thread(self.trips.active_trip)
@@ -219,22 +230,13 @@ class VirtualTravelPlugin(MaiBotPlugin):
         start = float(as_of) if as_of else now
         finish = float(end) if end else start + 7 * 86_400.0
         if not self.config.enabled:
-            return {
-                "schema_version": 1,
-                "trip_id": "",
-                "revision": 0,
-                "phase": "none",
-                "valid_from": None,
-                "valid_until": None,
-                "timezone": "",
-                "location": None,
-                "segments": [],
-                "occurred": False,
-                "source_kind": "none",
-                "health": {"state": "disabled", "reason": "feature_disabled"},
-                "next_event": None,
-                "generated_at": now,
-            }
+            active = await asyncio.to_thread(self.trips.active_trip)
+            frozen_at = float(active["updated_at"]) if active else start
+            frozen = await self.build_projection(frozen_at, max(frozen_at,finish))
+            frozen["segments"] = []
+            frozen["next_event"] = None
+            frozen["health"] = {"state": "disabled", "reason": "feature_disabled"}
+            return frozen
         return await self.build_projection(start, finish)
 
     @API(
@@ -436,10 +438,13 @@ class VirtualTravelPlugin(MaiBotPlugin):
         now: float,
     ) -> dict[str, Any]:
         current = await asyncio.to_thread(self.trips.get, trip_id)
-        segments, costs = self.planner._build_segments(
-            json.loads(kwargs.get("segments_json") or json.dumps(current["segments"])),
-            current["timezone"],
-        )
+        if kwargs.get("segments_json"):
+            segments, costs = self.planner._build_segments(
+                json.loads(kwargs["segments_json"]), current["timezone"]
+            )
+        else:
+            segments = [dict(item) for item in current["segments"]]
+            costs = {}
         if action == "postpone":
             shift = float(kwargs.get("shift_seconds") or 0)
             if shift <= 0:

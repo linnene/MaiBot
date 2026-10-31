@@ -19,8 +19,9 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from config import TravelConfig  # noqa: E402
-from plugin import VirtualTravelPlugin  # noqa: E402
+from tests import bootstrap  # noqa: E402,F401
+from _virtual_travel_test_pkg.config import TravelConfig  # noqa: E402
+from _virtual_travel_test_pkg.plugin import VirtualTravelPlugin  # noqa: E402
 
 NOW = datetime(2026, 10, 15, 12, 0, tzinfo=ZoneInfo("Asia/Shanghai")).timestamp()
 

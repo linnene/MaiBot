@@ -13,8 +13,8 @@ from typing import Any
 
 import sqlite3
 
-from domain.trips import TripService
-from storage import Database
+from .domain.trips import TripService
+from .storage import Database
 
 
 class Publishing:

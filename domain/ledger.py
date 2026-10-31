@@ -14,7 +14,7 @@ from typing import Any
 
 import sqlite3
 
-from storage import Database
+from ..storage import Database
 
 MONTHLY_MIN_YUAN = 15_000
 MONTHLY_MAX_YUAN = 25_000
@@ -217,32 +217,35 @@ class Ledger:
 
         stamp = time.time() if now is None else now
 
-        def operation(connection: sqlite3.Connection) -> dict[str, Any]:
-            row = connection.execute("SELECT * FROM reservations WHERE key = ?", (key,)).fetchone()
-            if row is None:
-                raise ValueError(f"预留不存在: {key}")
-            if row["state"] == "settled":
-                return dict(row)
-            if row["state"] == "released":
-                raise ValueError(f"预留已释放，不能结算: {key}")
-            if row["expires_at"] <= stamp:
-                raise ReservationExpired(f"预留已过期: {key}")
-            connection.execute(
-                "INSERT OR IGNORE INTO ledger_entries "
-                "(key, kind, trip_id, amount_fen, source_payment_key, created_at) "
-                "VALUES (?, 'spend', ?, ?, NULL, ?)",
-                (f"payment:{key}", row["trip_id"], row["amount_fen"], stamp),
-            )
-            connection.execute(
-                "UPDATE reservations SET state = 'settled', settled_at = ? WHERE key = ?",
-                (stamp, key),
-            )
-            updated = connection.execute(
-                "SELECT * FROM reservations WHERE key = ?", (key,)
-            ).fetchone()
-            return dict(updated)
+        return self.db.transaction(lambda connection: self.settle_in(connection, key, stamp))
 
-        return self.db.transaction(operation)
+    @staticmethod
+    def settle_in(connection: sqlite3.Connection, key: str, stamp: float) -> dict[str, Any]:
+        """Settle inside the caller's transaction, atomically with its event."""
+        row = connection.execute("SELECT * FROM reservations WHERE key = ?", (key,)).fetchone()
+        if row is None:
+            raise ValueError(f"预留不存在: {key}")
+        if row["state"] == "settled":
+            return dict(row)
+        if row["state"] == "released":
+            raise ValueError(f"预留已释放，不能结算: {key}")
+        if row["expires_at"] <= stamp:
+            raise ReservationExpired(f"预留已过期: {key}")
+        connection.execute(
+            "INSERT OR IGNORE INTO ledger_entries "
+            "(key, kind, trip_id, amount_fen, source_payment_key, created_at) "
+            "VALUES (?, 'spend', ?, ?, NULL, ?)",
+            (f"payment:{key}", row["trip_id"], row["amount_fen"], stamp),
+        )
+        connection.execute(
+            "UPDATE reservations SET state = 'settled', settled_at = ? WHERE key = ?",
+            (stamp, key),
+        )
+        updated = connection.execute(
+            "SELECT * FROM reservations WHERE key = ?", (key,)
+        ).fetchone()
+        return dict(updated)
+
 
     def release(self, key: str, now: float | None = None) -> dict[str, Any]:
         """释放未结算预留；重复释放幂等。"""

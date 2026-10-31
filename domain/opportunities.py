@@ -10,8 +10,8 @@ from typing import Any
 
 import sqlite3
 
-from domain.clock import month_bounds
-from storage import Database
+from .clock import month_bounds
+from ..storage import Database
 
 
 class OpportunityService:

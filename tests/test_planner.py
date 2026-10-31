@@ -16,9 +16,10 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from domain.ledger import Ledger  # noqa: E402
-from domain.trips import TripService  # noqa: E402
-from planner import DecisionBudget, Planner, ResearchClient, UNTRUSTED_LABEL  # noqa: E402
+from tests import bootstrap  # noqa: E402,F401
+from _virtual_travel_test_pkg.domain.ledger import Ledger  # noqa: E402
+from _virtual_travel_test_pkg.domain.trips import TripService  # noqa: E402
+from _virtual_travel_test_pkg.planner import DecisionBudget, Planner, ResearchClient, UNTRUSTED_LABEL  # noqa: E402
 
 NOW = datetime(2026, 10, 15, 12, 0, tzinfo=ZoneInfo("Asia/Shanghai")).timestamp()
 DAY = 86_400.0

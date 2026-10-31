@@ -1,0 +1,1 @@
+"""Offline plugin tests."""

@@ -8,7 +8,7 @@ from typing import Any
 
 import sqlite3
 
-from storage import Database
+from .storage import Database
 
 
 class MemoryOutbox:
