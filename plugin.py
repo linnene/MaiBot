@@ -15,6 +15,7 @@ from __future__ import annotations
 from typing import Any, Mapping, Optional
 
 import logging
+import time
 
 from maibot_sdk import API, Action, Command, MaiBotPlugin, Tool
 from maibot_sdk.types import ActivationType, ToolParameterInfo, ToolParamType
@@ -451,6 +452,50 @@ class GoogleSearchPlugin(MaiBotPlugin):
         except Exception:
             self.ctx.logger.warning("公开配图素材检索失败")
             return {"success": False, "error": "image_search_failed"}
+
+    @API(
+        name="search_travel_facts",
+        description="只读检索公开旅行资料，返回来源与抓取时间，不发送聊天消息",
+        version="1",
+        public=True,
+    )
+    async def search_travel_facts(
+        self, query: str = "", limit: int = 5, **kwargs: Any
+    ) -> dict[str, Any]:
+        """供其他插件读取外部事实；不进入总结、发送或图片路径。"""
+        del kwargs
+        query = (query or "").strip()
+        if not query:
+            return {"success": False, "error": "empty_query"}
+        blocked = query_error(query)
+        if blocked:
+            return {"success": False, "error": "invalid_query", "detail": blocked}
+        if not self._ensure_pipelines_ready() or self._engine_chain is None:
+            return {"success": False, "error": "search_unavailable"}
+        try:
+            results, engine = await self._engine_chain.search_with_fallback(
+                query, max(1, min(int(limit), 10))
+            )
+        except Exception:  # noqa: BLE001
+            self.ctx.logger.warning("旅行资料检索失败")
+            return {"success": False, "error": "search_failed"}
+        fetched_at = time.time()
+        items = []
+        for result in results:
+            content = (result.content or result.abstract or result.snippet or "").strip()
+            if not result.url or not content:
+                continue
+            items.append(
+                {
+                    "url": result.url,
+                    "title": result.title,
+                    "content": content[:2000],
+                    "fetched_at": fetched_at,
+                    "source_kind": "web_search",
+                    "engine": engine,
+                }
+            )
+        return {"success": True, "items": items, "engine": engine}
 
     # ---------------------------------------------------------------- #
     # Action: image_search
