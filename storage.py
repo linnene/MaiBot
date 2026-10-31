@@ -94,6 +94,10 @@ CREATE TABLE IF NOT EXISTS trip_events (
 );
 CREATE INDEX IF NOT EXISTS idx_trip_events_time
     ON trip_events (trip_id, at);
+CREATE TABLE IF NOT EXISTS travel_event_acks (
+    event_id TEXT PRIMARY KEY,
+    acked_at REAL NOT NULL
+);
 CREATE TABLE IF NOT EXISTS opportunities (
     month TEXT PRIMARY KEY,
     at REAL NOT NULL,
