@@ -8,6 +8,10 @@ from zoneinfo import ZoneInfo
 
 import asyncio
 import logging
+import json
+import os
+import tempfile
+from pathlib import Path
 
 API_NAME = "local.virtual-travel.get_travel_projection"
 TERMINAL_PHASES = {"none", "cancelled", "completed"}
@@ -30,13 +34,19 @@ class TravelProjectionClient:
         logger: logging.Logger | None = None,
         *,
         timeout: float = 5.0,
+        cache_path: Path | None = None,
     ) -> None:
         self.api = api
         self.logger = logger or logging.getLogger(__name__)
         self.timeout = timeout
         self._cached: dict[str, Any] | None = None
+        self.cache_path=Path(cache_path) if cache_path is not None else None
+        self._restored=False
 
     async def snapshot(self, now: datetime, end: datetime) -> dict[str, Any]:
+        if not self._restored:
+            self._restored=True
+            await asyncio.to_thread(self._restore)
         try:
             result = await asyncio.wait_for(
                 self.api.call(
@@ -55,12 +65,31 @@ class TravelProjectionClient:
         validated = validate_projection(result)
         if validated is None:
             return self.degraded(now, "invalid_projection")
+        if (validated.get("health") or {}).get("state")=="disabled" and self._cached and self._cached.get("phase") in TRAVELLING_PHASES:
+            return self.degraded(now,"travel_feature_disabled")
         if self._cached and self._cached.get("trip_id") == validated.get("trip_id"):
             if int(validated.get("revision", -1)) < int(self._cached.get("revision", 0)):
                 # 旧版本投影不能回退当前日程视图。
                 return dict(self._cached)
         self._cached = validated
+        await asyncio.to_thread(self._persist)
         return validated
+
+    def _restore(self) -> None:
+        if self.cache_path is None:return
+        try:self._cached=validate_projection(json.loads(self.cache_path.read_text()))
+        except (OSError,ValueError,TypeError):self._cached=None
+
+    def _persist(self) -> None:
+        if self.cache_path is None:return
+        try:
+            self.cache_path.parent.mkdir(parents=True,exist_ok=True)
+            with tempfile.NamedTemporaryFile(mode="w",dir=self.cache_path.parent,delete=False) as stream:
+                name=stream.name
+                json.dump(self._cached,stream,ensure_ascii=False)
+            os.replace(name,self.cache_path)
+        except OSError as exc:
+            self.logger.warning("[MaiLife] 无法保存旅行快照: %s",type(exc).__name__)
 
     def degraded(self, now: datetime, reason: str) -> dict[str, Any]:
         """返回带降级标记的快照；没有缓存时明确为无行程，而不是回学校模板。"""
@@ -180,6 +209,8 @@ def overlay_day(
     if not projection:
         return list(nodes)
     phase = str(projection.get("phase") or "")
+    if projection.get("source_kind")=="plan" and phase in TRAVELLING_PHASES:
+        return list(nodes)
     if phase in TERMINAL_PHASES or phase not in ACTIVE_PHASES:
         return list(nodes)
     segments = projection.get("segments") or []
@@ -228,11 +259,16 @@ def overlay_day(
         if node.get("kind") == "travel" and str(node.get("id", "")).startswith("travel:"):
             continue
         fragments = _carve(node, spans)
-        # 被旅行切开的在校/工作段不能再按学生身份续写，剩余时间改为自由安排。
-        if len(fragments) != 1 and str(node.get("kind")) in {"work", "study"}:
+        # A stay away from home also replaces untouched school blocks; a single
+        # remaining fragment may still be a truncated block.
+        changed = len(fragments)!=1 or (bool(fragments) and (fragments[0]["start_minute"],fragments[0]["end_minute"])!=(node["start_minute"],node["end_minute"]))
+        away = phase in {"staying","returning"}
+        if (changed or away) and str(node.get("kind")) in {"work", "study"}:
             for fragment in fragments:
                 fragment["kind"] = "leisure"
-                fragment["summary"] = "旅行前的自由活动"
+                fragment["summary"] = "旅行中的自由活动" if away else "旅行前的自由活动"
                 fragment["energy_load"] = -1.0
+                if away:
+                    fragment["location"] = str((projection.get("location") or {}).get("place") or "外地")
         kept.extend(fragments)
     return sorted(kept + travel_nodes, key=lambda item: (item["start_minute"], item["end_minute"]))

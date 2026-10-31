@@ -271,3 +271,36 @@ class EnvironmentTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class DeliveryRegressionTests(unittest.IsolatedAsyncioTestCase):
+    async def test_disabled_response_preserves_last_active_trip(self):
+        from unittest.mock import AsyncMock
+        api=SimpleNamespace(call=AsyncMock(return_value=projection('staying')))
+        client=TravelProjectionClient(api)
+        await client.snapshot(NOW,NOW+timedelta(days=1))
+        api.call.return_value=dict(projection('none'),trip_id='',segments=[],health={'state':'disabled'})
+        result=await client.snapshot(NOW,NOW+timedelta(days=1))
+        self.assertEqual(result['trip_id'],'trip-1');self.assertEqual(result['phase'],'staying')
+
+    async def test_snapshot_survives_consumer_restart_and_provider_failure(self):
+        from unittest.mock import AsyncMock
+        with tempfile.TemporaryDirectory() as td:
+            path=Path(td)/'snapshot.json';api=SimpleNamespace(call=AsyncMock(return_value=projection('staying')))
+            first=TravelProjectionClient(api,cache_path=path);await first.snapshot(NOW,NOW+timedelta(days=1))
+            api.call.side_effect=RuntimeError('offline')
+            recovered=await TravelProjectionClient(api,cache_path=path).snapshot(NOW,NOW+timedelta(days=1))
+            self.assertEqual(recovered['trip_id'],'trip-1');self.assertEqual(recovered['health']['state'],'degraded')
+
+    async def test_unconfirmed_projection_cannot_override_life(self):
+        value=projection('staying');value['source_kind']='plan';value['occurred']=False
+        self.assertEqual(overlay_day(NOW.date(),template_nodes(),value,'Asia/Tokyo'),template_nodes())
+
+
+class TravelSchoolConflictTests(unittest.TestCase):
+    def test_destination_stay_does_not_retain_school_fragments(self):
+        value=projection('staying')
+        merged=overlay_day(NOW.date(),template_nodes(),value,'Asia/Tokyo')
+        self.assertFalse(any(n['kind'] in {'work','study'} for n in merged))
+        for n in merged:
+            if '旅行' in n['summary'] and n['kind']=='leisure':self.assertEqual(n['location'],'Tokyo')

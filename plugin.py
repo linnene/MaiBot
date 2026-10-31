@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from datetime import date,datetime,timedelta
+from pathlib import Path
 
 from maibot_sdk import API,Command,HomeCard,HookHandler,MaiBotPlugin,Tool
 from maibot_sdk.types import HookMode,HookOrder,ToolParameterInfo,ToolParamType
@@ -288,7 +289,7 @@ class MaiLifePlugin(MaiBotPlugin):
         self._state=LifeStateEngine(self._store,self.config,self._llm,self.ctx.logger,bot_name=self._bot_name)
         self._schedule=ScheduleService(self._store,self.config,self._llm,root,self.ctx.logger,bot_name=self._bot_name)
         # 旅行投影只读消费；每轮维护取一次，日程与聊天背景共用同一版本。
-        self._travel=TravelProjectionClient(getattr(self.ctx,"api",None),self.ctx.logger)
+        self._travel=TravelProjectionClient(getattr(self.ctx,"api",None),self.ctx.logger,cache_path=Path(self._resolve_data_dir(root))/"travel_snapshot.json")
         self._travel_snapshot:dict[str,Any]|None=None
         self._rest=RestGate(self._store,self.config,self._llm,self._state,self.ctx.logger,bot_name=self._bot_name)
         self._proactive=ProactiveEngine(self.ctx,self._store,self.config,self._env,self.ctx.logger)
