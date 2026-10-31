@@ -8,8 +8,8 @@
       "version": "1.24.0",
       "source": {
         "repository": "https://github.com/linnene/MaiBot.git",
-        "ref": "feat/entertainment-life",
-        "commit": "50deebdfe942590fca847fc74f4225b4915d858c"
+        "ref": "feat/virtual-travel-life",
+        "commit": "c01178cffb24b66cef07ccd76a9d3f02d74d2069"
       },
       "upstream": "https://github.com/octmicy/Mai_life",
       "private_runtime_assets": [
@@ -100,8 +100,8 @@
       "version": "4.1.0",
       "source": {
         "repository": "https://github.com/linnene/MaiBot.git",
-        "ref": "feat/entertainment-search",
-        "commit": "cb326ad58907af743473c0568fe1e8fbae786567"
+        "ref": "feat/virtual-travel-search",
+        "commit": "6c832f257c483fd7762fc2e12cb6074ed59e8b91"
       },
       "upstream": "https://github.com/XXXxx7258/google_search_plugin",
       "private_runtime_assets": [
@@ -139,6 +139,22 @@
         "config.toml",
         "SDK data directory",
         "assistant-owned reminders SQLite database"
+      ]
+    },
+    {
+      "id": "local.virtual-travel",
+      "folder": "local_virtual_travel",
+      "version": "0.1.0",
+      "source": {
+        "repository": "https://github.com/linnene/MaiBot.git",
+        "ref": "feat/virtual-travel-plugin",
+        "commit": "8a17f5d6e39de896f2a2f452e8b54fca36a95777"
+      },
+      "upstream": "https://github.com/linnene/MaiBot",
+      "private_runtime_assets": [
+        "config.toml",
+        "SDK data directory",
+        "virtual travel SQLite database"
       ]
     }
   ]
