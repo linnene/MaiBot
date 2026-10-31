@@ -1,0 +1,31 @@
+{
+  "manifest_version": 2,
+  "id": "local.virtual-travel",
+  "name": "她的虚拟旅行生活",
+  "version": "0.1.0",
+  "description": "角色按现实时间规划、出发、游玩与返程的虚拟旅行生活；经费独立记账，日程投影只读提供给麦生活。",
+  "author": {
+    "name": "Local development",
+    "url": "https://github.com/linnene"
+  },
+  "license": "MIT",
+  "host_application": {
+    "min_version": "1.3.6",
+    "max_version": "1.99.99"
+  },
+  "sdk": {
+    "min_version": "2.12.0",
+    "max_version": "2.99.99"
+  },
+  "plugin_type": "extension",
+  "capabilities": [
+    "config.get",
+    "llm.generate"
+  ],
+  "i18n": {
+    "default_locale": "zh-CN"
+  },
+  "urls": {
+    "repository": "https://github.com/linnene/MaiBot"
+  }
+}
