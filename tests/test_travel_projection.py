@@ -257,6 +257,17 @@ class EnvironmentTests(unittest.TestCase):
         self.assertEqual(snapshot["weather_scope"], "home")
         self.assertNotIn("travel_location", snapshot)
 
+    def test_travel_weather_text_does_not_reuse_home_weather(self) -> None:
+        from Mai_life.plugin import MaiLifePlugin
+
+        plugin = MaiLifePlugin.__new__(MaiLifePlugin)
+        plugin._env = SimpleNamespace(weather_text=lambda weather: "上海小雨")
+        text = plugin._weather_for_travel({}, {"location": {"place": "Tokyo"}})
+        self.assertIn("Tokyo", text)
+        self.assertIn("天气未知", text)
+        self.assertNotIn("上海", text)
+        self.assertEqual(plugin._weather_for_travel({}, None), "上海小雨")
+
 
 if __name__ == "__main__":
     unittest.main()
