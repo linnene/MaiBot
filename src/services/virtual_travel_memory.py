@@ -15,7 +15,6 @@ from typing import Any, Awaitable, Callable
 logger = logging.getLogger("virtual_travel_memory")
 
 PLUGIN_ID = "local.virtual-travel"
-SYNTHETIC_CHAT_ID = "virtual-travel"
 DEFAULT_INTERVAL = 300.0
 EVENT_SUBJECT = "bot"
 EVENT_SOURCE_KIND = "virtual_self_event"
@@ -43,9 +42,15 @@ class VirtualTravelMemoryBridge:
         )
         if not isinstance(response, dict):
             return {"skipped": "invalid_response"}
+        if response.get("success") is False:
+            return {"skipped": "plugin_error"}
         # 独立开关默认关闭；只有插件配置明确开启时才允许写长期记忆。
         if response.get("export_enabled") is not True:
             return {"skipped": "export_disabled"}
+        chat_id = str(response.get("memory_chat_id") or "").strip()
+        if not chat_id:
+            # 写进孤立会话会无法在真实聊天中召回，宁可暂不导出。
+            return {"skipped": "memory_chat_missing"}
         items = response.get("items")
         if not isinstance(items, list) or not items:
             return {"stored": 0, "acked": 0, "failed": []}
@@ -60,7 +65,7 @@ class VirtualTravelMemoryBridge:
             try:
                 result = await self.ingest(
                     external_id=external_id,
-                    chat_id=SYNTHETIC_CHAT_ID,
+                    chat_id=chat_id,
                     text=event["text"],
                     participants=["bot"],
                     time_start=event["at"],

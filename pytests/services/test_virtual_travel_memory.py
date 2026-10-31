@@ -63,7 +63,9 @@ async def test_export_disabled_writes_nothing() -> None:
 
 @pytest.mark.asyncio
 async def test_occurred_event_is_written_with_provenance_then_acked() -> None:
-    api = FakeApi({"export_enabled": True, "items": [EVENT]})
+    api = FakeApi(
+        {"export_enabled": True, "memory_chat_id": "qq-private:哥哥", "items": [EVENT]}
+    )
     ingest = FakeIngest()
     bridge = make_bridge(api, ingest)
     result = await bridge.flush()
@@ -71,7 +73,7 @@ async def test_occurred_event_is_written_with_provenance_then_acked() -> None:
     assert result["acked"] == 1
     call = ingest.calls[0]
     assert call["external_id"] == "virtual-travel:trip-1:flight:start"
-    assert call["chat_id"] == "virtual-travel"
+    assert call["chat_id"] == "qq-private:哥哥"
     assert call["metadata"]["subject"] == "bot"
     assert call["metadata"]["source_kind"] == "virtual_self_event"
     assert call["metadata"]["event_at"] == EVENT["at"]
@@ -83,7 +85,7 @@ async def test_occurred_event_is_written_with_provenance_then_acked() -> None:
 
 @pytest.mark.asyncio
 async def test_duplicate_is_acked_without_error() -> None:
-    api = FakeApi({"export_enabled": True, "items": [EVENT]})
+    api = FakeApi({"export_enabled": True, "memory_chat_id": "qq-private:哥哥", "items": [EVENT]})
     ingest = FakeIngest(SimpleNamespace(success=True, stored_ids=[], skipped_ids=["p1"]))
     bridge = make_bridge(api, ingest)
     result = await bridge.flush()
@@ -93,7 +95,7 @@ async def test_duplicate_is_acked_without_error() -> None:
 
 @pytest.mark.asyncio
 async def test_failed_write_is_not_acked() -> None:
-    api = FakeApi({"export_enabled": True, "items": [EVENT]})
+    api = FakeApi({"export_enabled": True, "memory_chat_id": "qq-private:哥哥", "items": [EVENT]})
     ingest = FakeIngest(SimpleNamespace(success=False, stored_ids=[], skipped_ids=[]))
     bridge = make_bridge(api, ingest)
     result = await bridge.flush()
@@ -105,7 +107,7 @@ async def test_failed_write_is_not_acked() -> None:
 @pytest.mark.asyncio
 async def test_exception_on_one_event_does_not_block_others() -> None:
     second = dict(EVENT, event_id="trip-1:stay:start", summary="入住旅馆")
-    api = FakeApi({"export_enabled": True, "items": [EVENT, second]})
+    api = FakeApi({"export_enabled": True, "memory_chat_id": "qq-private:哥哥", "items": [EVENT, second]})
     ingest = FakeIngest(error=RuntimeError("memory offline"))
     bridge = make_bridge(api, ingest)
     result = await bridge.flush()
@@ -117,7 +119,7 @@ async def test_exception_on_one_event_does_not_block_others() -> None:
 async def test_plans_and_user_subjects_are_ignored() -> None:
     plan = dict(EVENT, subject="bot", source_kind="plan")
     user = dict(EVENT, subject="user", source_kind="virtual_self_event")
-    api = FakeApi({"export_enabled": True, "items": [plan, user]})
+    api = FakeApi({"export_enabled": True, "memory_chat_id": "qq-private:哥哥", "items": [plan, user]})
     ingest = FakeIngest()
     bridge = make_bridge(api, ingest)
     result = await bridge.flush()
@@ -126,9 +128,19 @@ async def test_plans_and_user_subjects_are_ignored() -> None:
 
 
 @pytest.mark.asyncio
-async def test_invalid_plugin_response_is_skipped() -> None:
+async def test_plugin_failure_is_reported_not_masked() -> None:
     api = FakeApi({"success": False, "error": "plugin_not_loaded"})
     ingest = FakeIngest()
     bridge = make_bridge(api, ingest)
     result = await bridge.flush()
-    assert result == {"skipped": "export_disabled"}
+    assert result == {"skipped": "plugin_error"}
+
+
+@pytest.mark.asyncio
+async def test_missing_memory_chat_skips_export() -> None:
+    api = FakeApi({"export_enabled": True, "memory_chat_id": "", "items": [EVENT]})
+    ingest = FakeIngest()
+    bridge = make_bridge(api, ingest)
+    result = await bridge.flush()
+    assert result == {"skipped": "memory_chat_missing"}
+    assert ingest.calls == []
