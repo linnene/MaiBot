@@ -51,7 +51,14 @@ class PluginTests(unittest.IsolatedAsyncioTestCase):
         components = {item["name"]: item for item in self.plugin.get_components()}
         self.assertIn("travel_plan", components)
         self.assertEqual(components["travel_plan"]["type"], "TOOL")
-        for name in ("get_travel_projection", "get_completed_travel_events", "ack_travel_events"):
+        for name in (
+            "get_travel_projection",
+            "get_completed_travel_events",
+            "ack_travel_events",
+            "propose_travel_share",
+            "before_send_travel_share",
+            "after_send_travel_share",
+        ):
             self.assertEqual(components[name]["type"], "API")
             self.assertTrue(components[name]["metadata"]["public"])
         self.assertEqual(components["status"]["type"], "API")

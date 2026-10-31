@@ -1,0 +1,72 @@
+{
+  "schema_version": 2,
+  "workspace_title": "她的虚拟旅行",
+  "pages": [
+    {
+      "id": "travel",
+      "title": "她的虚拟旅行",
+      "description": "只读查看旅行余额、当前行程与最近决策；此处不能替她发消息或改账。",
+      "placement": "workspace",
+      "icon": "chart",
+      "queries": {
+        "status": {
+          "api": "status"
+        }
+      },
+      "auto_refresh": true,
+      "poll_interval_seconds": 15,
+      "content": [
+        {
+          "type": "text",
+          "value": "只读页面：排队不等于已发送，页面也不会替她触发模型或群消息。"
+        },
+        {
+          "type": "stat",
+          "label": "可用经费（分）",
+          "value": {"source": "status", "field": "balance.available_fen"}
+        },
+        {
+          "type": "stat",
+          "label": "已预留（分）",
+          "value": {"source": "status", "field": "balance.reserved_fen"}
+        },
+        {
+          "type": "text",
+          "label": "当前行程",
+          "value": {"source": "status", "field": "trip.title"}
+        },
+        {
+          "type": "text",
+          "label": "旅行阶段",
+          "value": {"source": "status", "field": "projection.phase"}
+        },
+        {
+          "type": "text",
+          "label": "目前所在地",
+          "value": {"source": "status", "field": "projection.location.place"}
+        },
+        {
+          "type": "text",
+          "label": "最近一次内部决策",
+          "value": {"source": "status", "field": "last_decision.action"}
+        },
+        {
+          "type": "text",
+          "label": "主动游记",
+          "value": {"source": "status", "field": "auto_share"}
+        },
+        {
+          "type": "table",
+          "label": "行程段",
+          "value": {"source": "status", "field": "projection.segments"},
+          "columns": [
+            {"field": "segment_id", "label": "段"},
+            {"field": "kind", "label": "类型"},
+            {"field": "title", "label": "说明"},
+            {"field": "phase", "label": "阶段"}
+          ]
+        }
+      ]
+    }
+  ]
+}

@@ -22,6 +22,7 @@ from domain.opportunities import OpportunityService
 from domain.trips import TripNotFound, TripService
 from memory_outbox import MemoryOutbox
 from planner import DecisionBudget, Planner, ResearchClient
+from publishing import Publishing
 
 
 class VirtualTravelPlugin(MaiBotPlugin):
@@ -42,6 +43,13 @@ class VirtualTravelPlugin(MaiBotPlugin):
         )
         self.decision_budget = DecisionBudget(self.ledger.db)
         self.outbox = await asyncio.to_thread(MemoryOutbox, self.ledger.db)
+        self.publishing = await asyncio.to_thread(
+            Publishing,
+            self.ledger.db,
+            self.trips,
+            lambda: self.config.auto_share,
+            lambda: list(self.config.publish_whitelist),
+        )
         self.research = ResearchClient(self.ctx)
         self.planner = Planner(
             self.ctx.llm,
@@ -242,6 +250,41 @@ class VirtualTravelPlugin(MaiBotPlugin):
             return {"acked": 0}
         acked = await asyncio.to_thread(self.outbox.ack, identifiers, self._now())
         return {"acked": acked}
+
+    @API(
+        name="propose_travel_share",
+        description="为已发生的游记创建待发送项；默认关闭且仅白名单群",
+        version="1",
+        public=True,
+    )
+    async def api_propose_travel_share(
+        self, event_id: str = "", group_session: str = "", **kwargs: Any
+    ) -> dict[str, Any]:
+        return await asyncio.to_thread(
+            self.publishing.propose, str(event_id), str(group_session), self._now()
+        )
+
+    @API(
+        name="before_send_travel_share",
+        description="发送前复核白名单、行程版本与有效期",
+        version="1",
+        public=True,
+    )
+    async def api_before_send_travel_share(self, token: str = "", **kwargs: Any) -> dict[str, Any]:
+        return await asyncio.to_thread(self.publishing.before_send, str(token), self._now())
+
+    @API(
+        name="after_send_travel_share",
+        description="记录发送回执；结果未知不重试",
+        version="1",
+        public=True,
+    )
+    async def api_after_send_travel_share(
+        self, token: str = "", receipt: Any = None, **kwargs: Any
+    ) -> dict[str, Any]:
+        return await asyncio.to_thread(
+            self.publishing.after_send, str(token), receipt, self._now()
+        )
 
     @API(
         name="status",

@@ -98,6 +98,17 @@ CREATE TABLE IF NOT EXISTS travel_event_acks (
     event_id TEXT PRIMARY KEY,
     acked_at REAL NOT NULL
 );
+CREATE TABLE IF NOT EXISTS publish_queue (
+    token TEXT PRIMARY KEY,
+    event_id TEXT NOT NULL,
+    group_session TEXT NOT NULL,
+    revision INTEGER NOT NULL,
+    expires_at REAL NOT NULL,
+    status TEXT NOT NULL CHECK (status IN ('queued', 'cancelled', 'sent', 'unknown')),
+    created_at REAL NOT NULL,
+    updated_at REAL NOT NULL,
+    receipt TEXT
+);
 CREATE TABLE IF NOT EXISTS opportunities (
     month TEXT PRIMARY KEY,
     at REAL NOT NULL,
