@@ -251,7 +251,11 @@ class Planner:
                 updated = self.trips.cancel(trip["trip_id"], int(trip["revision"]), now)
                 return {"action": "cancel", "applied": True, "trip": updated}
             if action == "revise":
-                segments = decision.get("segments")
+                # 模型给出的是带时区的 ISO 时间；先转成领域层的 epoch 与校验字段。
+                segments, _costs = self._build_segments(
+                    decision.get("segments") or [], str(trip["timezone"])
+                )
+                self._carry_reservations(trip, segments, now)
                 updated = self.trips.revise(
                     trip["trip_id"], int(trip["revision"]), {"segments": segments}, now
                 )
@@ -324,6 +328,30 @@ class Planner:
                 pass
             return {"action": "rejected", "applied": False, "reason": str(exc)}
         return {"action": "propose", "applied": True, "trip": trip, "estimated_fen": total}
+
+    def _carry_reservations(
+        self,
+        trip: dict[str, Any],
+        segments: list[dict[str, Any]],
+        now: float,
+    ) -> None:
+        """改期保留同段预留；被移除的行程段释放预留，避免资金被永久占住。"""
+
+        existing = {item["segment_id"]: item for item in trip.get("segments") or []}
+        new_ids = {item["segment_id"] for item in segments}
+        for segment in segments:
+            old = existing.get(segment["segment_id"])
+            if old and old.get("reservation_key"):
+                segment["reservation_key"] = old["reservation_key"]
+                segment["requires_funds"] = True
+        for segment_id, old in existing.items():
+            if segment_id in new_ids or not old.get("reservation_key"):
+                continue
+            try:
+                self.ledger.release(old["reservation_key"], now)
+            except ValueError:
+                # 已结算的预留不能释放；保留账目，不吞掉真实支出。
+                continue
 
     def _postpone(
         self,

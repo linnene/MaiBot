@@ -135,6 +135,39 @@ class PlannerTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(trip["status"], "confirmed")
         self.assertEqual(self.ledger.balance(NOW)["reserved_fen"], 500_000)
 
+    async def test_revise_with_iso_segments_keeps_reservation(self) -> None:
+        planner = self.make_planner(self.proposal(cost_yuan=5_000))
+        await planner.consider(self.snapshot({"kind": "opportunity"}), NOW, "2026-10-15")
+        trip = self.trips.active_trip()
+        new_start = NOW + 2 * DAY
+        decision = {
+            "action": "revise",
+            "expected_revision": trip["revision"],
+            "segments": [
+                {
+                    "segment_id": "flight",
+                    "kind": "flight",
+                    "title": "上海 → 东京",
+                    "start_iso": iso(new_start),
+                    "end_iso": iso(new_start + 3 * 3600),
+                    "timezone": TOKYO,
+                    "from_place": "Shanghai",
+                    "to_place": "Tokyo",
+                    "phase": "in_transit",
+                    "cost_yuan": 5_000,
+                }
+            ],
+        }
+        revised_planner = self.make_planner(decision)
+        result = await revised_planner.consider(
+            self.snapshot({"kind": "opportunity"}), NOW, "2026-10-15"
+        )
+        self.assertTrue(result["applied"])
+        updated = self.trips.active_trip()
+        self.assertGreater(updated["revision"], trip["revision"])
+        self.assertTrue(updated["segments"][0]["reservation_key"].endswith(":flight"))
+        self.assertEqual(self.ledger.balance(NOW)["reserved_fen"], 500_000)
+
     async def test_invalid_timezone_is_rejected(self) -> None:
         decision = self.proposal()
         decision["timezone"] = "Mars/Olympus"
