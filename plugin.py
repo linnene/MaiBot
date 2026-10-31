@@ -20,6 +20,7 @@ from domain.clock import local_date
 from domain.ledger import Ledger
 from domain.opportunities import OpportunityService
 from domain.trips import TripNotFound, TripService
+from memory_outbox import MemoryOutbox
 from planner import DecisionBudget, Planner, ResearchClient
 
 
@@ -40,6 +41,7 @@ class VirtualTravelPlugin(MaiBotPlugin):
             OpportunityService, data_dir / "travel.sqlite3", self.config.timezone
         )
         self.decision_budget = DecisionBudget(self.ledger.db)
+        self.outbox = await asyncio.to_thread(MemoryOutbox, self.ledger.db)
         self.research = ResearchClient(self.ctx)
         self.planner = Planner(
             self.ctx.llm,
@@ -194,19 +196,6 @@ class VirtualTravelPlugin(MaiBotPlugin):
         projection["generated_at"] = self._now()
         return projection
 
-    def _completed_events(self, cursor: str, limit: int) -> list[dict[str, Any]]:
-        def operation(connection):
-            rows = connection.execute(
-                "SELECT e.* FROM trip_events e "
-                "LEFT JOIN travel_event_acks a ON a.event_id = e.event_id "
-                "WHERE a.event_id IS NULL AND e.at <= ? "
-                "ORDER BY e.at, e.event_id LIMIT ?",
-                (self._now(), max(1, min(int(limit), 100))),
-            ).fetchall()
-            return [dict(row) for row in rows]
-
-        return self.ledger.db.read(operation)
-
     # ---------------------------------------------------------------- API
 
     @API(
@@ -232,11 +221,12 @@ class VirtualTravelPlugin(MaiBotPlugin):
     async def api_get_completed_travel_events(
         self, cursor: str = "", limit: int = 20, **kwargs: Any
     ) -> dict[str, Any]:
-        events = await asyncio.to_thread(self._completed_events, cursor, limit)
-        for event in events:
-            event["subject"] = "bot"
-            event["source_kind"] = "virtual_self_event"
-        return {"items": events, "cursor": cursor}
+        events = await asyncio.to_thread(self.outbox.pending, self._now(), limit)
+        return {
+            "items": events,
+            "cursor": cursor,
+            "export_enabled": bool(self.config.memory_export),
+        }
 
     @API(
         name="ack_travel_events",
@@ -250,18 +240,8 @@ class VirtualTravelPlugin(MaiBotPlugin):
         identifiers = [str(item) for item in (event_ids or []) if str(item).strip()]
         if not identifiers:
             return {"acked": 0}
-
-        def operation(connection):
-            count = 0
-            for event_id in identifiers:
-                cursor = connection.execute(
-                    "INSERT OR IGNORE INTO travel_event_acks (event_id, acked_at) VALUES (?, ?)",
-                    (event_id, self._now()),
-                )
-                count += cursor.rowcount
-            return count
-
-        return {"acked": await asyncio.to_thread(self.ledger.db.transaction, operation)}
+        acked = await asyncio.to_thread(self.outbox.ack, identifiers, self._now())
+        return {"acked": acked}
 
     @API(
         name="status",
