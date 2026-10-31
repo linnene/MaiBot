@@ -9,7 +9,7 @@
       "source": {
         "repository": "https://github.com/linnene/MaiBot.git",
         "ref": "feat/virtual-travel-life",
-        "commit": "18e8fed5efd68539f04a31d0ff0691fa3a175b4a"
+        "commit": "f9a72b0378448e02cc0745787ec48f356b507b2d"
       },
       "upstream": "https://github.com/octmicy/Mai_life",
       "private_runtime_assets": [
@@ -148,7 +148,7 @@
       "source": {
         "repository": "https://github.com/linnene/MaiBot.git",
         "ref": "feat/virtual-travel-plugin",
-        "commit": "ccf5d4221385a99bd5f1c2d6642f524566144319"
+        "commit": "1719d6f267c9f76a8b55010beceb6a535d1f413f"
       },
       "upstream": "https://github.com/linnene/MaiBot",
       "private_runtime_assets": [

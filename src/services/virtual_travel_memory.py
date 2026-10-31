@@ -113,7 +113,9 @@ class VirtualTravelMemoryBridge:
             "trip_id": str(raw.get("trip_id") or ""),
             "segment_id": str(raw.get("segment_id") or ""),
         }
-        text = f"{summary}（{timezone}）" if timezone else summary
+        text = f"【机器人自身的虚拟旅行经历，不属于用户；事件时间={at}】{summary}"
+        if timezone:
+            text += f"（{timezone}）"
         return {"event_id": event_id, "at": at, "text": text, "metadata": metadata}
 
 

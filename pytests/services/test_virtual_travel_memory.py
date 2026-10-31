@@ -144,3 +144,11 @@ async def test_missing_memory_chat_skips_export() -> None:
     result = await bridge.flush()
     assert result == {"skipped": "memory_chat_missing"}
     assert ingest.calls == []
+
+
+def test_ownership_is_preserved_in_real_replyer_memory_reference():
+    from src.maisaka.builtin_tool.query_memory import _build_replyer_memory_reference
+    event=VirtualTravelMemoryBridge._normalize_event(EVENT)
+    text=_build_replyer_memory_reference({'hits':[{'content':event['text'],'source':'chat_summary:synthetic','metadata':event['metadata']}]})
+    assert '机器人自身的虚拟旅行经历，不属于用户' in text
+    assert str(EVENT['at']) in text
