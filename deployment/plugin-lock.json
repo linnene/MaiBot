@@ -112,11 +112,11 @@
     {
       "id": "local.entertainment",
       "folder": "local_entertainment",
-      "version": "0.1.0",
+      "version": "0.1.1",
       "source": {
         "repository": "https://github.com/linnene/MaiBot.git",
-        "ref": "feat/entertainment-reader",
-        "commit": "08e6526bb25f9bacfd3f176f04e30ffef9b3eaf1"
+        "ref": "fix/reading-share-delivery-plugin",
+        "commit": "2d28f56a29c197f40ee33d3b7c5a25fa2d0dd692"
       },
       "upstream": "https://github.com/linnene/MaiBot",
       "private_runtime_assets": [
