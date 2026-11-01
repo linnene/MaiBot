@@ -89,6 +89,7 @@ class Store:
         def init(db):
             db.executescript('''
             PRAGMA journal_mode=WAL;
+            CREATE TABLE IF NOT EXISTS delivery_parts(task_id TEXT NOT NULL, part TEXT NOT NULL, PRIMARY KEY(task_id,part));
             CREATE TABLE IF NOT EXISTS readings(id TEXT PRIMARY KEY, material TEXT NOT NULL, remembered INTEGER NOT NULL, observed REAL NOT NULL);
             CREATE TABLE IF NOT EXISTS shares(material_id TEXT PRIMARY KEY, channel TEXT NOT NULL, target_hash TEXT NOT NULL, receipt_id TEXT NOT NULL, shared REAL NOT NULL);
             CREATE TABLE IF NOT EXISTS leases(material_id TEXT PRIMARY KEY, channel TEXT NOT NULL, lease_id TEXT NOT NULL, target_hash TEXT NOT NULL);
@@ -108,9 +109,15 @@ class Store:
         db.execute('DELETE FROM previews WHERE created<? OR material_id NOT IN (SELECT id FROM readings) OR NOT EXISTS(SELECT 1 FROM leases l WHERE l.material_id=previews.material_id AND l.lease_id=previews.lease_id)',(time.time()-1200,))
         db.execute('DELETE FROM previews WHERE material_id IN (SELECT material_id FROM previews ORDER BY created DESC LIMIT -1 OFFSET 100)')
 
-    async def save(self, material: dict, impression: str, remember: bool):
+    async def claim_delivery(self, task_id, part):
+        def claim(db):
+            return db.execute('INSERT OR IGNORE INTO delivery_parts VALUES(?,?)',(task_id,part)).rowcount == 1
+        return await asyncio.to_thread(self._work,claim)
+
+    async def save(self, material: dict, impression: str, remember: bool, share_channel: str='none'):
         allowed = {key:material[key] for key in ('id','source_kind','title','url','author','observed_at','images')}
         allowed['impression'] = text(impression, 500)
+        allowed['share_channel'] = share_channel if share_channel in CHANNELS else 'none'
         def save(db):
             db.execute('INSERT INTO readings VALUES(?,?,?,?) ON CONFLICT(id) DO UPDATE SET material=CASE WHEN readings.remembered=1 AND excluded.remembered=0 THEN readings.material ELSE excluded.material END, remembered=MAX(readings.remembered,excluded.remembered)', (allowed['id'], json.dumps(allowed, ensure_ascii=False), int(remember), time.time()))
             # Archive is deliberately bounded; receipts remain for global dedup.
@@ -319,7 +326,7 @@ class Reader:
         if not interests:
             return {'success':False, 'reason':'no_interests'}
         # Interest-only query; no session/user/chat content enters search.
-        keyword = interests[0] if prefer_search else interests[int(time.time() // 3600) % len(interests)]
+        keyword = interests[int(time.time() // 3600) % len(interests)]
         result = await self.client.call('search_feeds', {'keyword':keyword}) if prefer_search else await self.client.call('list_feeds')
         feeds = result.get('feeds', []) if isinstance(result, dict) else []
         if not isinstance(feeds,list) or not feeds:
@@ -352,7 +359,9 @@ class Reader:
                 impression = verdict.get('impression','') if isinstance(verdict,dict) else ''
                 if not text(impression,500):
                     remember = False
-                await self.store.save(material, impression, remember)
+                share_channel = verdict.get('share_channel','none') if isinstance(verdict,dict) else 'none'
+                await self.store.save(material, impression, remember, share_channel)
+                await self.store.decision('share_candidate' if remember and share_channel in CHANNELS else 'read_without_share')
                 processed += 1
                 remembered += int(remember)
                 share_channel = verdict.get('share_channel','none') if isinstance(verdict,dict) else 'none'

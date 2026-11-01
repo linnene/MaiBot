@@ -2,7 +2,7 @@
   "manifest_version": 2,
   "id": "local.entertainment",
   "name": "兴趣阅读与自然分享",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "默认关闭的空闲只读小红书阅读、独立阅读批注与回执去重；分享由宿主与渠道插件负责。",
   "author": {
     "name": "Local development",
@@ -36,7 +36,9 @@
     "chat.get_private_streams",
     "chat.get_group_streams",
     "maisaka.proactive.trigger",
-    "config.get"
+    "config.get",
+    "send.text",
+    "send.image"
   ],
   "i18n": {
     "default_locale": "zh-CN"

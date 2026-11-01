@@ -38,6 +38,7 @@ class PluginTests(unittest.IsolatedAsyncioTestCase):
         self.prompts=[]
         self.p=EntertainmentPlugin()
         self.p._plugin_config_instance=EntertainmentConfig()
+        self.p.config.sharing.separate_messages=False
         self.p._ctx=SimpleNamespace(paths=SimpleNamespace(data_dir=self.tmp.name),logger=logging.getLogger('test'),api=SimpleNamespace(call=api_call),chat=SimpleNamespace(get_private_streams=streams,get_group_streams=streams),llm=SimpleNamespace(generate=generate),maisaka=SimpleNamespace(proactive=SimpleNamespace(trigger=trigger)))
         self.p._ctx.config=SimpleNamespace(get=AsyncMock(return_value="Synthetic curious persona"))
         await self.p.on_load()
