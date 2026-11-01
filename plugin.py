@@ -527,10 +527,10 @@ class EntertainmentPlugin(MaiBotPlugin):
                     return
                 if kind == 'image':
                     result = await self.ctx.send.image(image,pending['session'],return_details=True,
-                        sync_to_maisaka_history=True,maisaka_source_kind='external_reading')
+                        sync_to_maisaka_history=True,maisaka_source_kind='plugin_send')
                 else:
                     result = await self.ctx.send.text(material['url'],pending['session'],return_details=True,
-                        sync_to_maisaka_history=True,maisaka_source_kind='external_reading')
+                        sync_to_maisaka_history=True,maisaka_source_kind='plugin_send')
                 if not isinstance(result,dict) or result.get('sent') is not True or not result.get('message_id'):
                     await self.store.decision('split_share_receipt_unknown')
                     return
